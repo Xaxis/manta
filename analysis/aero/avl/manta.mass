@@ -1,0 +1,22 @@
+#  MANTA mass case file — PLACEHOLDER. Inertia values are guesstimates that
+#  will be replaced from analysis/struct/ once the mass budget is closed.
+#
+#  Lunit  Munit  Tunit
+   m      kg     s
+#
+#  rho_atm
+   1.225
+#  gravity
+   9.81
+#
+#-------------------------------------------------------------------
+#  mass    Xcg     Ycg     Zcg     Ixx     Iyy     Izz     Ixz
+#  All masses below are placeholders for first-cut stability. Replace
+#  with real numbers from the structural mass budget when available.
+#-------------------------------------------------------------------
+#  Pilot + rig (treated as a point mass at the design CG)
+*  82.5    0.95    0.0     -0.20   2.5     2.0     1.5     0.0   pilot+rig
+#  Wing assembly (15 kg, distributed; lumped at wing CG ≈ MAC c/4)
+*  15.0    1.04    0.0     0.0     6.0     1.5     5.0     0.0   wing
+#  FCS + servos + drogue + cutters (lumped near root for simplicity)
+*  3.0     0.50    0.0     -0.10   0.05    0.05    0.05    0.0   avionics+actuators

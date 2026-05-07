@@ -1,0 +1,73 @@
+MANTA wing — locked planform from BRIEF.md
+#-----------------------------------------------
+#  Mach
+0.0
+#-----------------------------------------------
+#  IYsym  IZsym  Zsym
+   0       0      0
+#-----------------------------------------------
+#  Sref      Cref     Bref
+   8.4       1.2046   7.4
+#-----------------------------------------------
+#  Xref      Yref     Zref
+#  Reference for moment computation: geometric MAC c/4 on the centerline,
+#  on the chord plane (z = 0). Static margin is reported about this point.
+   1.0406    0.0      0.0
+#-----------------------------------------------
+#  CDp profile-drag baseline (we apply CD0 externally; leave at 0 here)
+   0.0
+#=================================================================
+#                  SURFACE  —  Wing (right half; YDUP mirrors)
+#=================================================================
+SURFACE
+Wing
+#  Nchord  Cspace  Nspan  Sspace
+   12       1.0     30     -2.0
+#  YDUPLICATE  — mirror about the XZ plane to model the left half
+YDUPLICATE
+0.0
+#  ANGLE  — surface incidence (we use SECTION ainc instead)
+ANGLE
+0.0
+#-----------------------------------------------------------------
+#  Root section — y = 0
+SECTION
+#  Xle      Yle    Zle    chord    ainc    Nspan  Sspace
+   0.0      0.0    0.0    1.6216   0.0
+AFILE
+airfoils/MH78.dat
+#  Outer flaperon control surface — runs from 50 % half-span outboard,
+#  hinged at x/c = 0.75 (rear 25 % of chord). Sign convention: +1 means
+#  trailing edge down (lift up). When duplicated by YDUP, "SgnDup" inverts
+#  the right-side deflection so a SINGLE pilot-stick "aileron" command
+#  produces antisymmetric deflection (= roll); a "flap" command produces
+#  symmetric deflection (= pitch trim authority).
+CONTROL
+#  name      gain    Xhinge   HingeVec      SgnDup
+   flaperon  1.0     0.75     0.0 1.0 0.0   -1.0
+#-----------------------------------------------------------------
+#  Mid-section break — y = 1.85 (50 % half-span). Adds a SECTION here so
+#  the flaperon hinge line starts cleanly at the inboard edge of the surface.
+SECTION
+#  Xle                       Yle    Zle    chord    ainc
+   0.86264                   1.85   0.0    1.13513  -2.5
+AFILE
+airfoils/MH78.dat
+CONTROL
+   flaperon  1.0     0.75     0.0 1.0 0.0   -1.0
+#-----------------------------------------------------------------
+#  Tip section — y = 3.7 (full half-span)
+SECTION
+#  Xle                       Yle    Zle    chord    ainc
+   1.72527                   3.7    0.0    0.6486   -5.0
+AFILE
+airfoils/MH78.dat
+#  No flaperon at the tip station? It tapers to TE.
+#  (Actually the flaperon extends to the tip; AVL extends the most recent
+#  CONTROL declaration to the next SECTION. To prevent the flaperon from
+#  being applied through the tip, insert another CONTROL with gain 0 here
+#  if you wanted to truncate it. We keep the surface deflecting all the
+#  way to the tip for now — see comment above.)
+CONTROL
+   flaperon  1.0     0.75     0.0 1.0 0.0   -1.0
+#=================================================================

@@ -37,7 +37,7 @@ aero-trim:
 	$(ACT) python analysis/aero/trim/run.py
 
 aero-ld:
-	$(ACT) python analysis/aero/lift-drag/run.py
+	$(ACT) python analysis/aero/lift_drag/glide_polar.py
 
 cad: cad-wing
 
