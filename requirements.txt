@@ -1,0 +1,14 @@
+# MANTA analysis + CAD dependencies
+# Loose pins — recent stable across all packages.
+
+numpy>=1.26
+scipy>=1.13
+matplotlib>=3.8
+pandas>=2.2
+
+# Parametric CAD. Pulls OCP (OpenCascade Python bindings) — large download (~500 MB).
+cadquery>=2.4
+
+# Test / lint
+pytest>=8.0
+ruff>=0.5

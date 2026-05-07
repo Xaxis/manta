@@ -1,0 +1,9 @@
+{
+  "include": ["analysis", "cad", "fcs"],
+  "exclude": ["**/__pycache__", "**/.venv", "**/out", "**/node_modules"],
+  "extraPaths": ["."],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.11",
+  "reportMissingImports": "warning"
+}
