@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Build / dist
+build/
+dist/
+*.egg-info/
+*.egg
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# CAD intermediates / locks
+*.FCBak
+*.FCStd1
+*~.FCStd
+*.FCStd.lock
+*.brep_part
+*.iges_part
+*.step_part
+
+# OpenVSP intermediates
+*.history
+*.bak
+*_DegenGeom.csv
+*_DegenGeom.m
+
+# AVL intermediates (keep .avl input decks; ignore generated stability output unless explicitly committed)
+*.st
+*.sb
+*.eig
+*.bp
+*.hm
+
+# XFOIL polars are large and regenerable
+*.pol.tmp
+
+# CFD case scratch (allow user to opt-in commit)
+processor*/
+postProcessing/
+*.OpenFOAM
+
+# Logs / scratch
+*.log
+*.tmp
+scratch/
+sandbox/
