@@ -18,7 +18,12 @@ First-cut analysis closed end-to-end across all 6 BRIEF priority deliverables. T
 | #4 Deployment sequence | [`docs/03`](docs/03-deployment-sequence.md) | [`deployment/state_machine.py`](analysis/deployment/state_machine.py) | 7 ✓ | [`cad/jettison`](cad/jettison/) | first-cut |
 | #5 Symmetry budget | [`analysis/deployment/symmetry-budget.md`](analysis/deployment/symmetry-budget.md) | [`deployment/symmetry_budget.py`](analysis/deployment/symmetry_budget.py) | — | — | first-cut |
 | #6 Ground rig spec | [`test/ground/spec.md`](test/ground/spec.md) | — | — | — | spec drafted |
-| (also) FCS + alpha limiter | [`docs/04`](docs/04-fcs-architecture.md) | [`flightdynamics`](analysis/flightdynamics/), [`fcs`](fcs/) | 7 ✓ | — | in progress |
+| (also) FCS + alpha limiter | [`docs/04`](docs/04-fcs-architecture.md) | [`flightdynamics`](analysis/flightdynamics/), [`fcs`](fcs/) | 7 ✓ | [`cad/fcs`](cad/fcs/) | first-cut |
+| (also) Lateral-directional dynamics | inside [`docs/04`](docs/04-fcs-architecture.md) | [`flightdynamics/lateral.py`](analysis/flightdynamics/lateral.py) | — | — | first-cut |
+| (also) Drogue dynamics | inside [`docs/02`](docs/02-structural-budget.md) | [`deployment/drogue_dynamics.py`](analysis/deployment/drogue_dynamics.py) | — | — | first-cut |
+| (also) Pilot training transition | [`docs/07`](docs/07-pilot-training.md) | — | — | — | syllabus drafted |
+| (also) FMEA | [`safety/fmea.md`](safety/fmea.md) | 11 / 14 per-mode files in [`safety/failure-modes/`](safety/failure-modes/) | — | — | first-cut |
+| (also) Bench characterization plan | [`test/bench/`](test/bench/) | per-article specs | — | — | spec drafted |
 
 > 27 / 27 tests passing across `analysis/` and `fcs/`. Full suite: `make test`.
 

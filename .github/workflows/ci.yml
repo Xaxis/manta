@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analysis-tests:
+    name: Analysis tests + reproducibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy scipy matplotlib pandas pytest cadquery
+
+      - name: Run pytest suite
+        run: |
+          PYTHONPATH=. python -m pytest analysis/ fcs/ -v --tb=short
+
+      - name: Reproduce aero pipeline
+        run: |
+          PYTHONPATH=. python -m analysis.aero.planform.geometry > /dev/null
+          PYTHONPATH=. python analysis/aero/weissinger/run.py > /dev/null
+          PYTHONPATH=. python analysis/aero/lift_drag/cd0.py > /dev/null
+          PYTHONPATH=. python analysis/aero/lift_drag/glide_polar.py > /dev/null
+          PYTHONPATH=. python analysis/aero/trim/run.py > /dev/null
+
+      - name: Reproduce structural pipeline
+        run: |
+          PYTHONPATH=. python -m analysis.struct.materials > /dev/null
+          PYTHONPATH=. python -m analysis.struct.spar_model > /dev/null
+          PYTHONPATH=. python analysis/struct/spar_bending.py > /dev/null
+          PYTHONPATH=. python analysis/struct/mass_budget.py > /dev/null
+
+      - name: Reproduce deployment pipeline
+        run: |
+          PYTHONPATH=. python -m analysis.deployment.state_machine > /dev/null
+          PYTHONPATH=. python -m analysis.deployment.symmetry_budget > /dev/null
+          PYTHONPATH=. python -m analysis.deployment.drogue_dynamics > /dev/null
+
+      - name: Reproduce flight-dynamics pipeline
+        run: |
+          PYTHONPATH=. python -m analysis.flightdynamics.longitudinal > /dev/null
+          PYTHONPATH=. python -m analysis.flightdynamics.lateral > /dev/null
+
+      - name: Reproduce FCS / closed-loop pipeline
+        run: |
+          PYTHONPATH=. python -m fcs.envelope_protection.alpha_limiter > /dev/null
+          PYTHONPATH=. python -m fcs.sim.closed_loop > /dev/null
+
+      - name: Build wing CAD
+        run: |
+          PYTHONPATH=. python cad/wing/build.py
+          PYTHONPATH=. python cad/wing/preview.py
+          PYTHONPATH=. python cad/render_hero.py
+
+      - name: Build other CAD subsystems
+        run: |
+          PYTHONPATH=. python cad/spars/build.py
+          PYTHONPATH=. python cad/jettison/build.py
+          PYTHONPATH=. python cad/ribs/build.py
+          PYTHONPATH=. python cad/harness/build.py
+          PYTHONPATH=. python cad/pneumatics/build.py
+
+  site-build:
+    name: Site build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install site deps
+        working-directory: site
+        run: bun install --frozen-lockfile
+
+      - name: Build site
+        working-directory: site
+        run: bun run build
+
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-dist
+          path: site/dist
+          retention-days: 7

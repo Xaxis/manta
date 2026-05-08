@@ -143,12 +143,21 @@ import MetricCard from "../components/MetricCard.astro";
     title="Deployment + symmetry budget"
     intro="State machine implements every gate and abort path; 50,000-trial Monte Carlo characterizes the symmetry budget. The BRIEF 10 ms gate is the binding constraint; the locked architecture cannot meet it."
   >
-    <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
-      <img src="/img/symmetry_histogram.png" alt="Symmetry budget histogram" class="w-full" />
-      <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">
-        Distribution of |Δt_LR| across 50,000 trials with the locked architecture's input distributions. The 10 ms BRIEF gate (black) sits inside the bulk of the distribution; 3-σ at 16.3 ms (red dashed). Architecture revision required.
-      </figcaption>
-    </figure>
+    <div class="grid gap-8 md:grid-cols-2">
+      <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
+        <img src="/img/symmetry_histogram.png" alt="Symmetry budget histogram" class="w-full" />
+        <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">
+          Distribution of |Δt_LR| across 50,000 trials with the locked architecture's input distributions. The 10 ms BRIEF gate (black) sits inside the bulk of the distribution; 3-σ at 16.3 ms (red dashed). Architecture revision required.
+        </figcaption>
+      </figure>
+
+      <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
+        <img src="/img/drogue_descent.png" alt="Drogue descent profile" class="w-full" />
+        <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">
+          Drogue dynamics — V(t), drogue CdA buildup, and bridle tension during the deceleration from terminal V to wing-deploy V. <strong>Peak bridle tension 3.94 kN at 3.83 g</strong>: the harness mount has to be sized to this case, not 3 g flight.
+        </figcaption>
+      </figure>
+    </div>
   </Section>
 
   <Section
@@ -196,18 +205,22 @@ import MetricCard from "../components/MetricCard.astro";
       </p>
     </blockquote>
 
-    <div class="mt-12 grid gap-4 sm:grid-cols-3">
+    <div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <a class="rounded-md border border-zinc-800 hover:border-zinc-600 p-5 transition" href="https://github.com/Xaxis/manta/tree/main/analysis">
         <p class="text-sm font-semibold text-zinc-100">analysis/</p>
         <p class="mt-1 text-xs text-zinc-500">aero · struct · deployment · flight dynamics</p>
       </a>
       <a class="rounded-md border border-zinc-800 hover:border-zinc-600 p-5 transition" href="https://github.com/Xaxis/manta/tree/main/cad">
         <p class="text-sm font-semibold text-zinc-100">cad/</p>
-        <p class="mt-1 text-xs text-zinc-500">parametric STEP + STL · wing · spars · jettison · ribs · harness</p>
+        <p class="mt-1 text-xs text-zinc-500">STEP + STL · wing · spars · ribs · harness · jettison · pneumatics · fcs</p>
       </a>
       <a class="rounded-md border border-zinc-800 hover:border-zinc-600 p-5 transition" href="https://github.com/Xaxis/manta/tree/main/safety">
         <p class="text-sm font-semibold text-zinc-100">safety/</p>
-        <p class="mt-1 text-xs text-zinc-500">FMEA · failure-mode write-ups · reserve compatibility</p>
+        <p class="mt-1 text-xs text-zinc-500">FMEA · 11 per-mode write-ups · reserve compatibility</p>
+      </a>
+      <a class="rounded-md border border-zinc-800 hover:border-zinc-600 p-5 transition" href="https://github.com/Xaxis/manta/tree/main/test">
+        <p class="text-sm font-semibold text-zinc-100">test/</p>
+        <p class="mt-1 text-xs text-zinc-500">bench · ground rig spec · tow · drop · manned-flight gates</p>
       </a>
     </div>
   </Section>
