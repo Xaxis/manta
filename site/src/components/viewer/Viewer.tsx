@@ -168,6 +168,28 @@ const RESERVE_CONE_PART: Part = {
   label: "reserve canopy deployment cone (30° half-angle)",
 };
 
+// Stowed-configuration parts (wing folded, ribs coiled)
+const STOWED_PARTS: Part[] = [
+  {
+    id: "stowed_spars",
+    url: "/models/stowed/stowed_spars.stl",
+    color: "#1a1a1a",
+    opacity: 0.95,
+    metalness: 0.6,
+    roughness: 0.3,
+    label: "spars retracted, body-axis stowed",
+  },
+  {
+    id: "stowed_ribs",
+    url: "/models/stowed/stowed_ribs.stl",
+    color: "#777",
+    opacity: 0.95,
+    metalness: 0.4,
+    roughness: 0.4,
+    label: "tape-spring ribs coiled around spars",
+  },
+];
+
 function StlPart({
   part,
   deployState,
@@ -226,9 +248,9 @@ function Scene({
   showReserveCone: boolean;
   showStubs: boolean;
 }) {
-  // After full jettison (when showReserveCone is on), hide spars+wing and
-  // show stubs. Otherwise, hide stubs (they're conceptual, only relevant
-  // post-jettison).
+  // Crossfade between stowed (s≈0) and deployed (s≈1) configurations.
+  // Below 0.10 we show the stowed parts; above we transition to deployed.
+  const showStowed = deployState < 0.15 && !showReserveCone;
   return (
     <>
       <hemisphereLight args={["#fff8e6", "#1a2138", 0.65]} />
@@ -242,22 +264,38 @@ function Scene({
       <directionalLight position={[-2, -3, 1]} intensity={0.25} />
 
       <group>
-        {PARTS.map((part) => {
-          const isAirframe = ["wing", "front_spar", "rear_spar"].includes(part.id);
-          const isStub = part.id === "stubs";
-          // Hide airframe in jettison view; show stubs only in jettison view
-          const visible = showReserveCone
-            ? !isAirframe
-            : !isStub || showStubs;
-          return (
-            <StlPart
-              key={part.id}
-              part={part}
-              deployState={deployState}
-              visible={visible}
-            />
-          );
-        })}
+        {/* Static body parts (always visible — pilot, rig, sub-frame) */}
+        {PARTS.filter((p) =>
+          ["pilot", "rig_main", "rig_reserve", "subframe"].includes(p.id)
+        ).map((p) => (
+          <StlPart key={p.id} part={p} deployState={deployState} visible={true} />
+        ))}
+
+        {/* Stowed-config airframe parts (visible only at low deploy state) */}
+        {showStowed
+          ? STOWED_PARTS.map((p) => (
+              <StlPart key={p.id} part={p} deployState={deployState} visible={true} />
+            ))
+          : PARTS.filter((p) => ["wing", "front_spar", "rear_spar"].includes(p.id)).map(
+              (p) => (
+                <StlPart
+                  key={p.id}
+                  part={p}
+                  deployState={deployState}
+                  visible={!showReserveCone}
+                />
+              )
+            )}
+
+        {/* Stubs visible only post-jettison */}
+        {(showReserveCone || showStubs) && (
+          <StlPart
+            part={PARTS.find((p) => p.id === "stubs")!}
+            deployState={deployState}
+            visible={true}
+          />
+        )}
+
         {showReserveCone && (
           <StlPart
             part={RESERVE_CONE_PART}
