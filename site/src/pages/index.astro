@@ -63,9 +63,9 @@ import Viewer from "../components/viewer/Viewer.tsx";
     id="findings"
     eyebrow="What the analysis surfaced"
     title="Three architecture decisions need to change."
-    intro="The first-cut analyses across deliverables #1–#6 produced three findings that the BRIEF should be amended to reflect. Each is backed by runnable code in the repo; clicking through goes to the doc that defends it."
+    intro="The first-cut analyses across deliverables #1–#6 + the stowed-configuration verification produced four findings that the BRIEF should be amended to reflect. Each is backed by runnable code in the repo; clicking through goes to the doc that defends it."
   >
-    <div class="grid gap-6 md:grid-cols-3">
+    <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
       <article class="rounded-xl border border-orange-500/20 bg-orange-500/[0.04] p-6">
         <p class="text-xs uppercase tracking-wider text-orange-400/80">Finding #1</p>
         <h3 class="mt-2 text-xl font-semibold text-zinc-100">V_bg = 16 m/s, not 25 m/s</h3>
@@ -94,6 +94,16 @@ import Viewer from "../components/viewer/Viewer.tsx";
         </p>
         <p class="mt-3 text-sm text-zinc-300">Replace passive sequencing with closed-loop sensing.</p>
         <a class="mt-4 inline-block text-xs text-orange-300 hover:text-orange-200 underline underline-offset-4" href="https://github.com/Xaxis/manta/blob/main/docs/03-deployment-sequence.md">docs/03 →</a>
+      </article>
+
+      <article class="rounded-xl border border-orange-500/20 bg-orange-500/[0.04] p-6">
+        <p class="text-xs uppercase tracking-wider text-orange-400/80">Finding #4</p>
+        <h3 class="mt-2 text-xl font-semibold text-zinc-100">Stowed package over BRIEF 150 mm budget</h3>
+        <p class="mt-3 text-sm text-zinc-400 leading-relaxed">
+          With the wing stacked on top of a skydiving rig, off-body z-thickness comes out to <span class="mono">267 mm</span>. Rig stack alone (<span class="mono">160 mm</span>) busts the budget.
+        </p>
+        <p class="mt-3 text-sm text-zinc-300">Integrate wing INTO the rig, not on top of it.</p>
+        <a class="mt-4 inline-block text-xs text-orange-300 hover:text-orange-200 underline underline-offset-4" href="https://github.com/Xaxis/manta/blob/main/cad/stowed/out/thickness_report.md">thickness_report →</a>
       </article>
     </div>
   </Section>

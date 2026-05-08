@@ -104,6 +104,8 @@ Three findings the analysis has surfaced — each needs a decision before flight
 
 3. **Replace passive pneumatic sequencing with active per-side flow modulation.** Locked architecture (BRIEF decision #5) cannot close the 10 ms 3-σ symmetry gate. Active modulation closes the budget at 8.1 ms 3-σ. ([`docs/03`](docs/03-deployment-sequence.md), [`analysis/deployment/symmetry-budget.md`](analysis/deployment/symmetry-budget.md))
 
+4. **Stowed-package thickness over budget.** With the wing stacked on top of a standard skydiving rig, the off-body z-thickness comes out to ~267 mm — the BRIEF target is < 150 mm. The skydiving rig stack alone (160 mm) busts the budget on its own. Recommend integrating the wing INTO the rig (not stacking on top) — major architectural change but the only path that holds both the 150 mm budget and a full reserve+main. ([`cad/stowed/build.py`](cad/stowed/build.py), [`cad/stowed/out/thickness_report.md`](cad/stowed/out/thickness_report.md))
+
 ## Where things live
 
 | Path | What's there |
