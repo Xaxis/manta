@@ -2,8 +2,16 @@
 
 Astro + Tailwind static site that pulls together MANTA's analysis,
 renderings, and program status. Builds to `dist/` as plain static
-HTML/CSS, deployable anywhere (Cloudflare Pages, Vercel, S3+CloudFront,
-GitHub Pages, etc.).
+HTML/CSS.
+
+**Live:** <https://manta-ten.vercel.app>
+
+**Deploy:** auto-deploys from `main` via GitHub Actions
+([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)) using
+the Vercel CLI + a `VERCEL_TOKEN` GitHub secret. The workflow only
+fires when `site/`, the analysis-output PNGs, or the workflow itself
+changes — `analysis/` and `cad/` Python edits don't redeploy unless
+they touch the embedded artifacts.
 
 ## Stack
 

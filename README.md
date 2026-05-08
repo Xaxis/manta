@@ -4,6 +4,8 @@ A deployable rigid-wing personal flight system. Pilot-worn airframe — telescop
 
 This is a real flight vehicle program. Read [`BRIEF.md`](BRIEF.md) before touching anything else.
 
+**Live project site:** <https://manta-ten.vercel.app>
+
 ![MANTA wing — top view](cad/out/topview.png)
 
 ## Status

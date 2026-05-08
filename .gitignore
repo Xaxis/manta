@@ -65,3 +65,9 @@ postProcessing/
 *.tmp
 scratch/
 sandbox/
+
+# secrets
+.env
+.env.local
+.env.*.local
+.vercel
