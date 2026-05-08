@@ -246,6 +246,27 @@ diameter (vs. 40 mm BRIEF) plus the rear spar plus the tape-spring
 ribs and skin folded around them. The BRIEF "stowed package thickness
 < 15 cm off body profile" constraint may also need re-examination.
 
+## Drogue snatch — harness-mount load case
+
+The drogue dynamics analysis ([`analysis/deployment/drogue_dynamics.py`](../analysis/deployment/drogue_dynamics.py))
+sizes the drogue at 1.84 m diameter (CdA = 1.47 m²) and predicts a
+**peak bridle tension of 3.94 kN at t = 0.45 s** post drogue-extract
+command. This corresponds to a 3.83 g equivalent vehicle decel —
+between 3 g flight limit and 4.5 g ultimate.
+
+The bridle attaches to the **harness**, not the spar roots. The spar
+bending analysis above does NOT see this load in the nominal sequence.
+But the harness mount (and the bridge that carries the wing-mount
+sub-frame) must be sized to the drogue case rather than to the 3 g
+flight load — the drogue snatch is the binding harness-mount case.
+
+Cross-coupling exception: an asymmetric-deploy event with the drogue
+still attached can transmit drogue tension into the spar roots via
+the wing-harness interface for ~75 ms before jettison fires. This is
+not yet sized; current `analysis/struct/spar_bending.py` treats only
+the symmetric flight load. A coupled-asymmetric-deploy load case is
+in the open-issues list below.
+
 ## Open verification gates
 
 1. **FEA validation of the root joint** under combined bending + cutter
