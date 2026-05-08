@@ -133,7 +133,10 @@ def _section_pts3d(xs2d, ys2d, y_station, chord, x_le, twist_deg):
     return pts
 
 
-def _build_wing_OML(p: Planform, n_stations: int = 14) -> cq.Workplane:
+def _build_wing_OML(p: Planform, n_stations: int = 14) -> tuple[cq.Workplane, cq.Workplane]:
+    """Return (right, left) halves separately — easier to export and lighter
+    than trying to boolean-union two solids that only meet at a single line.
+    """
     xs2d, ys2d = _airfoil_xy()
     wires = []
     for i in range(n_stations):
@@ -148,7 +151,7 @@ def _build_wing_OML(p: Planform, n_stations: int = 14) -> cq.Workplane:
     right_solid = cq.Solid.makeLoft(wires, ruled=False)
     right = cq.Workplane(obj=right_solid)
     left = right.mirror("XZ")
-    return right.union(left)
+    return right, left
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +330,7 @@ def main() -> None:
     subframe = _subframe()
 
     print("  Building wing OML...")
-    wing = _build_wing_OML(p)
+    wing_right, wing_left = _build_wing_OML(p)
 
     print("  Building swept spars (sized config: 73/51/25 mm front, BRIEF rear)...")
     front_r = _build_swept_spar(p, FRONT_SPAR_X_OVER_C,
@@ -383,31 +386,45 @@ def main() -> None:
     print(f"Overall reserve clearance: {'PASS' if all_clear else 'FAIL'}")
     print()
 
-    # Combined export — use cq.Compound rather than chained Workplane.union,
-    # which fails when any intermediate Workplane has an empty stack.
-    components = [
-        ("pilot", pilot),
-        ("main", main_can),
-        ("reserve", reserve_can),
-        ("subframe", subframe),
-        ("wing", wing),
-        ("front_r", front_r),
-        ("front_l", front_l),
-        ("rear_r", rear_r),
-        ("rear_l", rear_l),
-        ("stubs", stubs),
-    ]
+    # Per-subsystem export so the viewer can color / animate parts
+    # independently. Group into logical subsystems for the front-end.
+    subsystems = {
+        "pilot": [pilot],
+        "rig_main": [main_can],
+        "rig_reserve": [reserve_can],
+        "subframe": [subframe],
+        "wing": [wing_right, wing_left],
+        "front_spar": [front_r, front_l],
+        "rear_spar": [rear_r, rear_l],
+        "stubs": [stubs],
+    }
+    parts_dir = out_dir / "parts"
+    parts_dir.mkdir(exist_ok=True)
+    for name, wps in subsystems.items():
+        solids = []
+        for wp in wps:
+            for s in wp.solids().vals():
+                solids.append(s)
+        if not solids:
+            continue
+        compound = cq.Compound.makeCompound(solids)
+        cq.exporters.export(compound, str(parts_dir / f"{name}.stl"),
+                            tolerance=0.001, angularTolerance=0.5)
+        cq.exporters.export(compound, str(parts_dir / f"{name}.step"))
+
+    # Full-assembly compound (used by the static iso render path)
     component_solids = []
-    for name, wp in components:
-        try:
+    for name, wps in subsystems.items():
+        for wp in wps:
             for s in wp.solids().vals():
                 component_solids.append(s)
-        except Exception as exc:
-            print(f"    skip {name}: {exc}")
-
     full_no_cone = cq.Compound.makeCompound(component_solids)
     cone_solid_list = list(cone.solids().vals())
     full_with_cone = cq.Compound.makeCompound(component_solids + cone_solid_list)
+    # Cone alone for the viewer
+    cq.exporters.export(cq.Compound.makeCompound(cone_solid_list),
+                        str(parts_dir / "reserve_cone.stl"),
+                        tolerance=0.001, angularTolerance=0.5)
 
     print("  Exporting full_assembly (no cone) ...")
     cq.exporters.export(full_no_cone, str(out_dir / "full_assembly.step"))
