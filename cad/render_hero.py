@@ -107,19 +107,21 @@ def main() -> None:
             zs = [pt[2] for pt in sec] + [sec[0][2]]
             ax.plot(xs, ys, zs, color="#1a3a8e", linewidth=0.6, alpha=0.5)
 
-    # Spars — front and rear at sized-config dimensions, stitched as thin lines
-    for x_chord, label, lw, color in [
-        (0.20 * p.chord_root, "front spar", 3.0, "#222"),
-        (0.65 * p.chord_root, "rear spar", 2.0, "#555"),
+    # Spars — front and rear, swept along constant x/c lines (as in cad/spars/build.py)
+    for x_over_c, label, lw, color in [
+        (0.20, "front spar (swept)", 3.0, "#222"),
+        (0.65, "rear spar (swept)", 2.0, "#555"),
     ]:
         ys = np.linspace(-p.half_span, p.half_span, 80)
-        xs_s = np.full_like(ys, x_chord)
+        xs_s = np.array([p.x_le_at(yi) + x_over_c * p.chord_at(yi) for yi in ys])
         zs_s = np.zeros_like(ys)
         ax.plot(xs_s, ys, zs_s, color=color, linewidth=lw, label=label, alpha=0.85)
 
-    # Cutter / root fitting markers
-    for x_chord in (0.20 * p.chord_root, 0.65 * p.chord_root):
-        ax.scatter([x_chord], [0], [0], color="red", s=80, marker="o",
+    # Cutter / root fitting markers — stubs at the wing root (y=0) at the
+    # spar's chordwise position
+    for x_over_c in (0.20, 0.65):
+        x_root = x_over_c * p.chord_root
+        ax.scatter([x_root], [0], [0], color="red", s=80, marker="o",
                     label=None, zorder=5)
     ax.scatter([], [], [], color="red", s=80, marker="o", label="cutter / root fitting (×4)")
 
@@ -163,12 +165,14 @@ def main() -> None:
     x_te = x_le + chord
     ax2.fill_between(ys, x_le, x_te, color="#79a8ff", alpha=0.4, label="wing planform")
     ax2.plot(ys, x_le + 0.25 * chord, "--", color="#1a3a8e", label="c/4 line")
-    for x_chord, lab, lw in [(0.20 * p.chord_root, "front spar", 3),
-                               (0.65 * p.chord_root, "rear spar", 2)]:
-        ax2.plot(ys, np.full_like(ys, x_chord), "-", color="black", linewidth=lw, label=lab)
+    for x_over_c, lab, lw in [(0.20, "front spar (swept)", 3),
+                                (0.65, "rear spar (swept)", 2)]:
+        x_arr = np.array([p.x_le_at(yi) + x_over_c * p.chord_at(yi) for yi in ys])
+        ax2.plot(ys, x_arr, "-", color="black", linewidth=lw, label=lab)
     ax2.plot([0], [p.x_mac_c4], "*", color="orange", markersize=18, label=f"MAC c/4 ({p.x_mac_c4:.3f} m)")
-    for xc in (0.20 * p.chord_root, 0.65 * p.chord_root):
-        ax2.plot([+0.030, -0.030], [xc, xc], "ro", markersize=10)
+    for x_over_c in (0.20, 0.65):
+        x_root = x_over_c * p.chord_root
+        ax2.plot([+0.030, -0.030], [x_root, x_root], "ro", markersize=10)
     ax2.plot([], [], "ro", markersize=10, label="cutter / root fitting")
     ax2.invert_yaxis()
     ax2.set_xlabel("y — span (m)")
