@@ -1,0 +1,16 @@
+contributor,scale,three_sigma_ms
+"CO2 cartridge fill mass / temp",0.5,13.3224
+"CO2 cartridge fill mass / temp",1.0,16.1860
+"CO2 cartridge fill mass / temp",2.0,24.5316
+"Valve port differential",0.5,15.9059
+"Valve port differential",1.0,16.1871
+"Valve port differential",2.0,17.2373
+"Manifold flow impedance match",0.5,15.1601
+"Manifold flow impedance match",1.0,16.1524
+"Manifold flow impedance match",2.0,19.6048
+"Spar telescope friction (cold / wet)",0.5,14.4185
+"Spar telescope friction (cold / wet)",1.0,16.1876
+"Spar telescope friction (cold / wet)",2.0,21.8549
+"Tape-spring snap dispersion (per-rib summed)",0.5,15.7158
+"Tape-spring snap dispersion (per-rib summed)",1.0,16.3096
+"Tape-spring snap dispersion (per-rib summed)",2.0,18.5277
