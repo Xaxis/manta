@@ -1,137 +1,65 @@
 import { Suspense, useEffect, useState } from "react";
-import { Canvas, useLoader, useFrame } from "@react-three/fiber";
+import { Canvas, useLoader } from "@react-three/fiber";
 import { OrbitControls, Html } from "@react-three/drei";
 import * as THREE from "three";
-import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 // ---------------------------------------------------------------
-// MANTA — corrected architecture viewer
-//
-// The pilot is the fuselage. A spine yoke + arm-aligned LE spar +
-// body-mounted TE spar + telescoping wrist/ankle tip extensions
-// form the rigid wing structure, deploying as the pilot spreads
-// from a wingsuit-tucked posture.
-//
-// We render two CAD keyframes (stowed at deploy=0, deployed at
-// deploy=1) generated from cad/build.py. Slider crossfades between
-// them; "Play" auto-ramps in 2.0 s.
+// MANTA viewer — loads GLB scenes baked from MuJoCo + Blender.
+// Three poses: stowed (deploy=0), mid-deploy (~0.5), deployed (1.0).
+// Slider crossfades between adjacent poses.
 // ---------------------------------------------------------------
 
-type Keyframe = {
-  url: string;
-  color: string;
-  opacity: number;
+type Pose = "stowed" | "mid_deploy" | "deployed";
+const POSE_URLS: Record<Pose, string> = {
+  stowed: "/models/v3/stowed.glb",
+  mid_deploy: "/models/v3/mid_deploy.glb",
+  deployed: "/models/v3/deployed.glb",
 };
 
-const STOWED: Keyframe[] = [
-  { url: "/models/stowed/torso.stl", color: "#a87d52", opacity: 0.9 },
-  { url: "/models/stowed/head.stl", color: "#c4956a", opacity: 0.95 },
-  { url: "/models/stowed/spine_yoke.stl", color: "#1a1a1a", opacity: 0.95 },
-  { url: "/models/stowed/upper_arm_right.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/stowed/forearm_right.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/stowed/hand_right.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/stowed/upper_arm_left.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/stowed/forearm_left.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/stowed/hand_left.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/stowed/le_spar_right.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/stowed/le_spar_left.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/stowed/upper_leg_right.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/stowed/lower_leg_right.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/stowed/upper_leg_left.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/stowed/lower_leg_left.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/stowed/te_spar_right_stage1.stl", color: "#444", opacity: 0.95 },
-  { url: "/models/stowed/te_spar_right_stage2.stl", color: "#444", opacity: 0.95 },
-  { url: "/models/stowed/te_spar_right_stage3.stl", color: "#444", opacity: 0.95 },
-  { url: "/models/stowed/te_spar_left_stage1.stl", color: "#444", opacity: 0.95 },
-  { url: "/models/stowed/te_spar_left_stage2.stl", color: "#444", opacity: 0.95 },
-  { url: "/models/stowed/te_spar_left_stage3.stl", color: "#444", opacity: 0.95 },
-  { url: "/models/stowed/wrist_ext_right_stage1.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/stowed/wrist_ext_right_stage2.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/stowed/wrist_ext_right_stage3.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/stowed/wrist_ext_left_stage1.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/stowed/wrist_ext_left_stage2.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/stowed/wrist_ext_left_stage3.stl", color: "#222", opacity: 0.95 },
-];
-
-const DEPLOYED: Keyframe[] = [
-  { url: "/models/deployed/torso.stl", color: "#a87d52", opacity: 0.9 },
-  { url: "/models/deployed/head.stl", color: "#c4956a", opacity: 0.95 },
-  { url: "/models/deployed/spine_yoke.stl", color: "#1a1a1a", opacity: 0.95 },
-  { url: "/models/deployed/upper_arm_right.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/deployed/forearm_right.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/deployed/hand_right.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/deployed/upper_arm_left.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/deployed/forearm_left.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/deployed/hand_left.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/deployed/le_spar_right.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/deployed/le_spar_left.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/deployed/upper_leg_right.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/deployed/lower_leg_right.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/deployed/upper_leg_left.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/deployed/lower_leg_left.stl", color: "#a87d52", opacity: 0.85 },
-  { url: "/models/deployed/le_spar_right.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/deployed/le_spar_left.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/deployed/te_spar_right_stage1.stl", color: "#444", opacity: 0.95 },
-  { url: "/models/deployed/te_spar_right_stage2.stl", color: "#444", opacity: 0.95 },
-  { url: "/models/deployed/te_spar_right_stage3.stl", color: "#444", opacity: 0.95 },
-  { url: "/models/deployed/te_spar_left_stage1.stl", color: "#444", opacity: 0.95 },
-  { url: "/models/deployed/te_spar_left_stage2.stl", color: "#444", opacity: 0.95 },
-  { url: "/models/deployed/te_spar_left_stage3.stl", color: "#444", opacity: 0.95 },
-  { url: "/models/deployed/wrist_ext_right_stage1.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/deployed/wrist_ext_right_stage2.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/deployed/wrist_ext_right_stage3.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/deployed/wrist_ext_left_stage1.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/deployed/wrist_ext_left_stage2.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/deployed/wrist_ext_left_stage3.stl", color: "#222", opacity: 0.95 },
-  { url: "/models/deployed/skin_right.stl", color: "#79a8ff", opacity: 0.45 },
-  { url: "/models/deployed/skin_left.stl", color: "#79a8ff", opacity: 0.45 },
-];
-
-function StlMesh({
-  url,
-  color,
-  opacity,
+function GltfScene({
+  pose,
   visible,
+  opacity,
 }: {
-  url: string;
-  color: string;
-  opacity: number;
+  pose: Pose;
   visible: boolean;
+  opacity: number;
 }) {
-  const geom = useLoader(STLLoader, url) as THREE.BufferGeometry;
-  return (
-    <mesh geometry={geom} visible={visible} castShadow receiveShadow>
-      <meshStandardMaterial
-        color={color}
-        opacity={opacity}
-        transparent={opacity < 1}
-        metalness={0.1}
-        roughness={0.55}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
-  );
+  const gltf = useLoader(GLTFLoader, POSE_URLS[pose]);
+  // Apply the opacity to all materials in the scene
+  useEffect(() => {
+    gltf.scene.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        if (mat) {
+          mat.transparent = opacity < 1.0;
+          mat.opacity = opacity;
+          mat.depthWrite = opacity > 0.95;
+        }
+      }
+    });
+  }, [gltf, opacity]);
+  if (!visible) return null;
+  return <primitive object={gltf.scene.clone()} />;
 }
 
 function Scene({ deployState }: { deployState: number }) {
-  // Crossfade: opacity weights interpolate between stowed and deployed
-  // At s = 0.0 → show stowed (alpha = 1, deployed alpha = 0)
-  // At s = 1.0 → show deployed (alpha = 1, stowed alpha = 0)
-  // To avoid double-rendering everything on top of itself, we hard-switch
-  // at s = 0.5 with a 0.10-wide crossfade band.
-  const showStowed = deployState < 0.55;
-  const showDeployed = deployState > 0.45;
+  // Crossfade across three poses:
+  //   0.00 - 0.40   stowed → mid_deploy
+  //   0.40 - 1.00   mid_deploy → deployed
+  let stowedAlpha = 0.0;
+  let midAlpha = 0.0;
+  let deployedAlpha = 0.0;
 
-  // Within the crossfade band, mix the alphas for a smooth visual
-  let stowedAlpha = 1.0;
-  let deployedAlpha = 1.0;
-  if (deployState < 0.45) {
-    deployedAlpha = 0.0;
-  } else if (deployState > 0.55) {
-    stowedAlpha = 0.0;
-  } else {
-    const t = (deployState - 0.45) / 0.10;
+  if (deployState <= 0.40) {
+    const t = deployState / 0.40;
     stowedAlpha = 1 - t;
+    midAlpha = t;
+  } else {
+    const t = (deployState - 0.40) / 0.60;
+    midAlpha = 1 - t;
     deployedAlpha = t;
   }
 
@@ -139,38 +67,35 @@ function Scene({ deployState }: { deployState: number }) {
     <>
       <hemisphereLight args={["#fff8e6", "#1a2138", 0.65]} />
       <directionalLight
-        position={[3, 5, 4]}
-        intensity={1.2}
+        position={[3, -5, 6]}
+        intensity={2.0}
         castShadow
         shadow-mapSize-width={1024}
         shadow-mapSize-height={1024}
       />
-      <directionalLight position={[-2, -3, 1]} intensity={0.25} />
+      <directionalLight position={[-3, 4, 4]} intensity={0.5} />
 
-      <group>
-        {STOWED.map((p) => (
-          <StlMesh
-            key={`s_${p.url}`}
-            url={p.url}
-            color={p.color}
-            opacity={p.opacity * stowedAlpha}
-            visible={showStowed && stowedAlpha > 0.01}
-          />
-        ))}
-        {DEPLOYED.map((p) => (
-          <StlMesh
-            key={`d_${p.url}`}
-            url={p.url}
-            color={p.color}
-            opacity={p.opacity * deployedAlpha}
-            visible={showDeployed && deployedAlpha > 0.01}
-          />
-        ))}
-      </group>
+      <Suspense
+        fallback={
+          <Html center>
+            <div className="text-zinc-300 text-sm">Loading scene…</div>
+          </Html>
+        }
+      >
+        {stowedAlpha > 0.01 && (
+          <GltfScene pose="stowed" visible={true} opacity={stowedAlpha} />
+        )}
+        {midAlpha > 0.01 && (
+          <GltfScene pose="mid_deploy" visible={true} opacity={midAlpha} />
+        )}
+        {deployedAlpha > 0.01 && (
+          <GltfScene pose="deployed" visible={true} opacity={deployedAlpha} />
+        )}
+      </Suspense>
 
       <gridHelper
         args={[10, 20, "#1a3a8e", "#222"]}
-        position={[0, -0.40, 0]}
+        position={[0, -0.5, 0]}
       />
     </>
   );
@@ -180,7 +105,7 @@ type ViewerProps = {
   height?: number;
 };
 
-const PLAY_DURATION_MS = 2000;
+const PLAY_DURATION_MS = 2200;
 
 export default function Viewer({ height = 620 }: ViewerProps) {
   const [deployState, setDeployState] = useState(1.0);
@@ -198,7 +123,19 @@ export default function Viewer({ height = 620 }: ViewerProps) {
         setDeployState(1);
         setPlaying(false);
       } else {
-        const eased = t * t * (3 - 2 * t); // smooth cubic
+        // Eased: a slow lead-in (Phase A spread) then a fast pulse (Phase B
+        // tip-extension fire) then settle.
+        let eased: number;
+        if (t < 0.5) {
+          // Phase A: smooth spread over 0..0.5 of the play duration
+          eased = (t / 0.5) * 0.4;
+        } else {
+          // Phase B: sharp ramp from 0.4 → 1.0 over 0.5..0.7 of play duration
+          // then hold settle to 1.0
+          const tt = (t - 0.5) / 0.5;
+          const sharp = tt * tt * (3 - 2 * tt);
+          eased = 0.4 + sharp * 0.6;
+        }
         setDeployState(eased);
         raf = requestAnimationFrame(tick);
       }
@@ -208,42 +145,33 @@ export default function Viewer({ height = 620 }: ViewerProps) {
   }, [playing]);
 
   const phaseLabel = (() => {
-    if (deployState < 0.05) return "STOWED";
-    if (deployState < 0.50) return "Phase A — arms + legs spreading";
-    if (deployState < 0.70) return "Phase B — tip extensions firing";
-    if (deployState < 0.95) return "Phase D — skin tensioning";
-    return "DEPLOYED — glide";
+    if (deployState < 0.05) return "STOWED — wingsuit-tucked posture";
+    if (deployState < 0.42) return "Phase A — arms + legs spreading";
+    if (deployState < 0.95) return "Phase B — CO₂ fires; tip extensions snap out";
+    return "DEPLOYED — wing tensioned, glide";
   })();
 
   return (
     <div className="relative w-full" style={{ height }}>
       <Canvas
         shadows
-        camera={{ position: [4.0, 2.6, 4.6], fov: 38, near: 0.05, far: 60 }}
+        camera={{ position: [3.0, 1.6, 3.8], fov: 32, near: 0.05, far: 60 }}
         onCreated={({ scene }) => {
-          // Body frame is z-up (our CAD convention); Three.js camera is y-up.
-          // Rotate the entire scene root so vehicle z aligns with viewport y.
+          // GLB files use Blender's z-up world. Three.js default is y-up.
+          // Rotate the scene root so vehicle z aligns with viewport up.
           scene.rotation.x = -Math.PI / 2;
           scene.background = new THREE.Color("#0a0a0c");
         }}
       >
-        <Suspense
-          fallback={
-            <Html center>
-              <div className="text-zinc-300 text-sm">Loading model…</div>
-            </Html>
-          }
-        >
-          <Scene deployState={deployState} />
-        </Suspense>
+        <Scene deployState={deployState} />
         <OrbitControls
           enableDamping
           dampingFactor={0.06}
           autoRotate={autoRotate}
           autoRotateSpeed={0.45}
-          minDistance={1.2}
+          minDistance={1.5}
           maxDistance={20}
-          target={[-0.3, 0, 0]}
+          target={[0, 0, 0]}
         />
       </Canvas>
 
@@ -304,7 +232,7 @@ export default function Viewer({ height = 620 }: ViewerProps) {
         </span>
       </div>
       <div className="absolute top-3 left-3 text-[11px] text-zinc-500 max-w-[300px]">
-        drag to orbit · scroll to zoom · arms extend then tip booms snap out
+        physics-baked from MuJoCo · drag orbit · scroll zoom
       </div>
     </div>
   );

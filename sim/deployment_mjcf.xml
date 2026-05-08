@@ -1,0 +1,223 @@
+<!--
+  MANTA — deployment kinematics MuJoCo model
+
+  Frame convention:  +x forward (flight direction)
+                     +y starboard (right side)
+                     +z up
+  Right side: y > 0.  Left side: y < 0.
+
+  Telescoping stages: at slide = 0, all stages overlap at the parent
+  joint position (collapsed). At slide = stage_length, the stage is
+  offset by stage_length along its slide axis from its parent.
+  The geoms are in body-local frame, oriented along the parent's
+  outboard direction (+y for right side, -y for left side).
+
+  Forward simulation phases:
+    Phase A (0.00 → 0.30 s)  arm + leg spread to deployed pose
+    Phase B (0.30 → 0.50 s)  CO₂ fires; telescoping stages snap out
+    Phase D (0.50 → 0.60 s)  hold deployed pose (skin tensions)
+-->
+<mujoco model="manta_deployment">
+  <option timestep="0.0005" gravity="0 0 0" integrator="RK4"/>
+  <compiler angle="radian" coordinate="local"/>
+
+  <default>
+    <joint armature="0.001" damping="0.5" limited="true"/>
+    <geom contype="0" conaffinity="0" rgba="0.7 0.7 0.7 1"/>
+    <position kp="80" kv="6"/>
+  </default>
+
+  <asset>
+    <material name="skin" rgba="0.78 0.62 0.46 1"/>
+    <material name="cfrp" rgba="0.10 0.10 0.10 1"/>
+    <material name="harness" rgba="0.18 0.18 0.20 1"/>
+  </asset>
+
+  <worldbody>
+    <body name="torso" pos="0 0 0">
+      <!-- Welded to world for the deployment animation. In real flight the
+           torso is in equilibrium under aero drag + the actuator reaction
+           torques and rotates very little over a 0.6 s deploy; we hold it
+           still for the kinematic-deployment visualization. -->
+      <inertial pos="0 0 0" mass="55" diaginertia="2.5 2.0 1.5"/>
+      <geom name="torso_g" type="box" size="0.275 0.18 0.11" material="harness"/>
+      <geom name="head_g"  type="sphere" size="0.10" pos="0.42 0 0.03" material="skin"/>
+      <geom name="spine_yoke" type="capsule" fromto="0.30 0 0.13 -0.55 0 0.13" size="0.022" material="cfrp"/>
+
+      <!-- ============== RIGHT ARM (y > 0) ============== -->
+      <body name="shoulder_R" pos="0.30 0.18 0.10">
+        <!-- Yaw about +z. For the right arm (extending in +y), POSITIVE yaw
+             rotates the +y direction toward -x → aft sweep. Stowed=0, deployed=+0.44. -->
+        <joint name="sh_R_yaw"   type="hinge" axis="0 0 1" range="-0.05 1.6" damping="2"/>
+        <joint name="sh_R_pitch" type="hinge" axis="1 0 0" range="-1.5 0.05" damping="2"/>
+        <body name="upper_arm_R" pos="0 0.15 0">
+          <inertial pos="0 0.15 0" mass="2.5" diaginertia="0.05 0.005 0.05"/>
+          <geom name="ua_R" type="capsule" fromto="0 -0.15 0 0 0.15 0" size="0.05" material="skin"/>
+          <body name="elbow_R" pos="0 0.15 0">
+            <joint name="el_R" type="hinge" axis="1 0 0" range="-1.6 0.05" damping="1.5"/>
+            <body name="forearm_R" pos="0 0.135 0">
+              <inertial pos="0 0.135 0" mass="1.6" diaginertia="0.03 0.003 0.03"/>
+              <geom name="fa_R" type="capsule" fromto="0 -0.135 0 0 0.135 0" size="0.04" material="skin"/>
+              <!-- LE spar: capsule along the arm, in local frame from -0.435 to +0.135 in y
+                   (covers shoulder pivot to wrist), offset in +z. -->
+              <geom name="le_spar_R" type="capsule" fromto="0 -0.435 0.07 0 0.135 0.07" size="0.031" material="cfrp"/>
+              <body name="wrist_R" pos="0 0.135 0">
+                <geom name="hand_R" type="capsule" fromto="0 0 0 0 0.20 0" size="0.03" material="skin"/>
+
+                <!-- Telescoping wrist tip extension. At slide=0, all 3 stages
+                     overlap at the wrist; at slide=full, they extend out. -->
+                <body name="tip1_R" pos="0 0 0.07">
+                  <joint name="tip1_R_slide" type="slide" axis="0 1 0" range="0 1.10" damping="2"/>
+                  <inertial pos="0 -0.55 0" mass="0.45" diaginertia="0.015 0.001 0.015"/>
+                  <!-- Geom extends INWARD (-y) at slide=0 (collapsed inside arm),
+                       outward at slide=full. -->
+                  <geom name="tip1_R_g" type="capsule" fromto="0 -1.10 0 0 0 0" size="0.022" material="cfrp"/>
+
+                  <body name="tip2_R" pos="0 0 0">
+                    <joint name="tip2_R_slide" type="slide" axis="0 1 0" range="0 1.10" damping="2"/>
+                    <inertial pos="0 -0.55 0" mass="0.30" diaginertia="0.010 0.001 0.010"/>
+                    <geom name="tip2_R_g" type="capsule" fromto="0 -1.10 0 0 0 0" size="0.018" material="cfrp"/>
+
+                    <body name="tip3_R" pos="0 0 0">
+                      <joint name="tip3_R_slide" type="slide" axis="0 1 0" range="0 1.10" damping="2"/>
+                      <inertial pos="0 -0.55 0" mass="0.20" diaginertia="0.006 0.001 0.006"/>
+                      <geom name="tip3_R_g" type="capsule" fromto="0 -1.10 0 0 0 0" size="0.013" material="cfrp"/>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- ============== LEFT ARM (y < 0) — mirror ============== -->
+      <body name="shoulder_L" pos="0.30 -0.18 0.10">
+        <!-- Left arm extends -y. NEGATIVE yaw rotates -y toward -x → aft sweep. -->
+        <joint name="sh_L_yaw"   type="hinge" axis="0 0 1" range="-1.6 0.05" damping="2"/>
+        <joint name="sh_L_pitch" type="hinge" axis="1 0 0" range="-1.5 0.05" damping="2"/>
+        <body name="upper_arm_L" pos="0 -0.15 0">
+          <inertial pos="0 -0.15 0" mass="2.5" diaginertia="0.05 0.005 0.05"/>
+          <geom name="ua_L" type="capsule" fromto="0 0.15 0 0 -0.15 0" size="0.05" material="skin"/>
+          <body name="elbow_L" pos="0 -0.15 0">
+            <joint name="el_L" type="hinge" axis="1 0 0" range="-1.6 0.05" damping="1.5"/>
+            <body name="forearm_L" pos="0 -0.135 0">
+              <inertial pos="0 -0.135 0" mass="1.6" diaginertia="0.03 0.003 0.03"/>
+              <geom name="fa_L" type="capsule" fromto="0 0.135 0 0 -0.135 0" size="0.04" material="skin"/>
+              <geom name="le_spar_L" type="capsule" fromto="0 0.435 0.07 0 -0.135 0.07" size="0.031" material="cfrp"/>
+              <body name="wrist_L" pos="0 -0.135 0">
+                <geom name="hand_L" type="capsule" fromto="0 0 0 0 -0.20 0" size="0.03" material="skin"/>
+
+                <body name="tip1_L" pos="0 0 0.07">
+                  <joint name="tip1_L_slide" type="slide" axis="0 -1 0" range="0 1.10" damping="2"/>
+                  <inertial pos="0 0.55 0" mass="0.45" diaginertia="0.015 0.001 0.015"/>
+                  <geom name="tip1_L_g" type="capsule" fromto="0 1.10 0 0 0 0" size="0.022" material="cfrp"/>
+                  <body name="tip2_L" pos="0 0 0">
+                    <joint name="tip2_L_slide" type="slide" axis="0 -1 0" range="0 1.10" damping="2"/>
+                    <inertial pos="0 0.55 0" mass="0.30" diaginertia="0.010 0.001 0.010"/>
+                    <geom name="tip2_L_g" type="capsule" fromto="0 1.10 0 0 0 0" size="0.018" material="cfrp"/>
+                    <body name="tip3_L" pos="0 0 0">
+                      <joint name="tip3_L_slide" type="slide" axis="0 -1 0" range="0 1.10" damping="2"/>
+                      <inertial pos="0 0.55 0" mass="0.20" diaginertia="0.006 0.001 0.006"/>
+                      <geom name="tip3_L_g" type="capsule" fromto="0 1.10 0 0 0 0" size="0.013" material="cfrp"/>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- ============== HIPS / LEGS ============== -->
+      <body name="hip_R" pos="-0.20 0.12 0">
+        <joint name="hip_R_yaw" type="hinge" axis="0 0 1" range="-0.5 0.05" damping="2"/>
+        <body name="upper_leg_R" pos="-0.225 0 0">
+          <inertial pos="-0.225 0 0" mass="6.0" diaginertia="0.10 0.008 0.10"/>
+          <geom name="ul_R" type="capsule" fromto="0.225 0 0 -0.225 0 0" size="0.075" material="skin"/>
+          <body name="knee_R" pos="-0.225 0 0">
+            <joint name="kn_R" type="hinge" axis="0 1 0" range="-0.6 0.6" damping="1.5"/>
+            <body name="lower_leg_R" pos="-0.21 0 0">
+              <inertial pos="-0.21 0 0" mass="3.0" diaginertia="0.05 0.005 0.05"/>
+              <geom name="ll_R" type="capsule" fromto="0.21 0 0 -0.21 0 0" size="0.05" material="skin"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="hip_L" pos="-0.20 -0.12 0">
+        <joint name="hip_L_yaw" type="hinge" axis="0 0 1" range="-0.05 0.5" damping="2"/>
+        <body name="upper_leg_L" pos="-0.225 0 0">
+          <inertial pos="-0.225 0 0" mass="6.0" diaginertia="0.10 0.008 0.10"/>
+          <geom name="ul_L" type="capsule" fromto="0.225 0 0 -0.225 0 0" size="0.075" material="skin"/>
+          <body name="knee_L" pos="-0.225 0 0">
+            <joint name="kn_L" type="hinge" axis="0 1 0" range="-0.6 0.6" damping="1.5"/>
+            <body name="lower_leg_L" pos="-0.21 0 0">
+              <inertial pos="-0.21 0 0" mass="3.0" diaginertia="0.05 0.005 0.05"/>
+              <geom name="ll_L" type="capsule" fromto="0.21 0 0 -0.21 0 0" size="0.05" material="skin"/>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- ============== TE SPAR (body-mounted, telescoping spanwise) ============== -->
+      <body name="te_hub" pos="-0.55 0 0.05">
+        <body name="te1_R" pos="0 0 0">
+          <joint name="te1_R_slide" type="slide" axis="0 1 0" range="0 1.20" damping="2"/>
+          <inertial pos="0 -0.6 0" mass="0.40" diaginertia="0.012 0.001 0.012"/>
+          <geom name="te1_R_g" type="capsule" fromto="0 -1.20 0 0 0 0" size="0.020" material="cfrp"/>
+          <body name="te2_R" pos="0 0 0">
+            <joint name="te2_R_slide" type="slide" axis="0 1 0" range="0 1.20" damping="2"/>
+            <inertial pos="0 -0.6 0" mass="0.27" diaginertia="0.008 0.001 0.008"/>
+            <geom name="te2_R_g" type="capsule" fromto="0 -1.20 0 0 0 0" size="0.016" material="cfrp"/>
+            <body name="te3_R" pos="0 0 0">
+              <joint name="te3_R_slide" type="slide" axis="0 1 0" range="0 1.20" damping="2"/>
+              <inertial pos="0 -0.6 0" mass="0.18" diaginertia="0.005 0.001 0.005"/>
+              <geom name="te3_R_g" type="capsule" fromto="0 -1.20 0 0 0 0" size="0.013" material="cfrp"/>
+            </body>
+          </body>
+        </body>
+        <body name="te1_L" pos="0 0 0">
+          <joint name="te1_L_slide" type="slide" axis="0 -1 0" range="0 1.20" damping="2"/>
+          <inertial pos="0 0.6 0" mass="0.40" diaginertia="0.012 0.001 0.012"/>
+          <geom name="te1_L_g" type="capsule" fromto="0 1.20 0 0 0 0" size="0.020" material="cfrp"/>
+          <body name="te2_L" pos="0 0 0">
+            <joint name="te2_L_slide" type="slide" axis="0 -1 0" range="0 1.20" damping="2"/>
+            <inertial pos="0 0.6 0" mass="0.27" diaginertia="0.008 0.001 0.008"/>
+            <geom name="te2_L_g" type="capsule" fromto="0 1.20 0 0 0 0" size="0.016" material="cfrp"/>
+            <body name="te3_L" pos="0 0 0">
+              <joint name="te3_L_slide" type="slide" axis="0 -1 0" range="0 1.20" damping="2"/>
+              <inertial pos="0 0.6 0" mass="0.18" diaginertia="0.005 0.001 0.005"/>
+              <geom name="te3_L_g" type="capsule" fromto="0 1.20 0 0 0 0" size="0.013" material="cfrp"/>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <position name="sh_R_yaw_act"   joint="sh_R_yaw"   kp="180" kv="14"/>
+    <position name="sh_L_yaw_act"   joint="sh_L_yaw"   kp="180" kv="14"/>
+    <position name="sh_R_pitch_act" joint="sh_R_pitch" kp="180" kv="14"/>
+    <position name="sh_L_pitch_act" joint="sh_L_pitch" kp="180" kv="14"/>
+    <position name="el_R_act" joint="el_R" kp="120" kv="10"/>
+    <position name="el_L_act" joint="el_L" kp="120" kv="10"/>
+    <position name="hip_R_yaw_act" joint="hip_R_yaw" kp="120" kv="10"/>
+    <position name="hip_L_yaw_act" joint="hip_L_yaw" kp="120" kv="10"/>
+
+    <!-- Position controllers on telescoping stages — drive from 0 (collapsed)
+         to 1.10 m (extended) via commanded position with a stiff PD. -->
+    <position name="tip1_R_act" joint="tip1_R_slide" kp="800" kv="40"/>
+    <position name="tip2_R_act" joint="tip2_R_slide" kp="800" kv="40"/>
+    <position name="tip3_R_act" joint="tip3_R_slide" kp="800" kv="40"/>
+    <position name="tip1_L_act" joint="tip1_L_slide" kp="800" kv="40"/>
+    <position name="tip2_L_act" joint="tip2_L_slide" kp="800" kv="40"/>
+    <position name="tip3_L_act" joint="tip3_L_slide" kp="800" kv="40"/>
+    <position name="te1_R_act"  joint="te1_R_slide"  kp="600" kv="30"/>
+    <position name="te2_R_act"  joint="te2_R_slide"  kp="600" kv="30"/>
+    <position name="te3_R_act"  joint="te3_R_slide"  kp="600" kv="30"/>
+    <position name="te1_L_act"  joint="te1_L_slide"  kp="600" kv="30"/>
+    <position name="te2_L_act"  joint="te2_L_slide"  kp="600" kv="30"/>
+    <position name="te3_L_act"  joint="te3_L_slide"  kp="600" kv="30"/>
+  </actuator>
+</mujoco>
