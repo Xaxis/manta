@@ -1,256 +1,140 @@
-import { Suspense, useMemo, useRef, useState, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Canvas, useLoader, useFrame } from "@react-three/fiber";
 import { OrbitControls, Html } from "@react-three/drei";
 import * as THREE from "three";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
-// -------------------------------------------------------------
-// Per-subsystem definitions: STL paths, colors, animation rules
-// -------------------------------------------------------------
+// ---------------------------------------------------------------
+// MANTA — corrected architecture viewer
+//
+// The pilot is the fuselage. A spine yoke + arm-aligned LE spar +
+// body-mounted TE spar + telescoping wrist/ankle tip extensions
+// form the rigid wing structure, deploying as the pilot spreads
+// from a wingsuit-tucked posture.
+//
+// We render two CAD keyframes (stowed at deploy=0, deployed at
+// deploy=1) generated from cad/build.py. Slider crossfades between
+// them; "Play" auto-ramps in 2.0 s.
+// ---------------------------------------------------------------
 
-type AnimRule = {
-  // deploy_state ∈ [0,1]; rules return per-frame transform.
-  // For each rule we return a Matrix4 to apply to the mesh.
-  visible?: (s: number) => boolean;
-  scale?: (s: number) => [number, number, number];
-  rotation?: (s: number) => [number, number, number];   // Euler XYZ radians
-  position?: (s: number) => [number, number, number];   // translate offset
-};
-
-type Part = {
-  id: string;
+type Keyframe = {
   url: string;
   color: string;
-  opacity?: number;
-  metalness?: number;
-  roughness?: number;
-  label: string;
-  anim?: AnimRule;
+  opacity: number;
 };
 
-// Deployment-state animation choreography.
-//   s = 0.00 → 0.10  (stowed; everything close to body, wing/spars hidden)
-//   s = 0.10 → 0.30  drogue stable (no visible change in airframe — happens during freefall)
-//   s = 0.30 → 0.65  spars sweep + telescope out
-//   s = 0.55 → 0.85  ribs unfurl (we don't model ribs explicitly, but wing fades in)
-//   s = 0.65 → 1.00  wing skin tensions, full glide
-//
-// The static body parts (pilot, rig, sub-frame, cutters) are visible the
-// whole time. Reserve cone is shown only post-jettison (separate toggle).
-
-const easeInOut = (t: number) => t * t * (3 - 2 * t);
-
-const sparAnim: AnimRule = {
-  // Spars start collapsed (small scale along the spar axis) and stowed
-  // along +x (pilot body axis), then sweep out and extend.
-  // Approximate by:
-  //   - rotation about z: from +90° (along +x) to 0° (deployed swept direction)
-  //   - scale along the spar's local y axis: 0.35 (collapsed root-stage only)
-  //     to 1.0 (fully extended)
-  // This is a viewer-side approximation of the deploy kinematics; the real
-  // spar telescopes through 3 stages with locking-pin engagements per stage.
-  visible: (s) => true,
-  scale: (s) => {
-    const phase = Math.max(0, Math.min(1, (s - 0.30) / 0.35));
-    const f = 0.35 + (1 - 0.35) * easeInOut(phase);
-    return [1, f, 1];
-  },
-  rotation: (s) => {
-    // Stowed: spars along +x (rotate by +π/2 - sweep about z); deployed: 0.
-    const phase = Math.max(0, Math.min(1, (s - 0.30) / 0.35));
-    const angle = (1 - easeInOut(phase)) * (Math.PI / 2 - (22 * Math.PI) / 180);
-    return [0, 0, angle];
-  },
-};
-
-const wingAnim: AnimRule = {
-  // Wing OML fades in starting at s = 0.55 (skin starts to take shape) and
-  // ends fully present at s = 1.0.
-  scale: (s) => {
-    const phase = Math.max(0, Math.min(1, (s - 0.55) / 0.45));
-    const f = easeInOut(phase);
-    return [f, 1, f];
-  },
-};
-
-const stubAnim: AnimRule = {
-  // Stubs are visible only post-jettison. In the deployment animation we
-  // don't show them; they stay at unit scale. The reserve-cone toggle
-  // path is what shows them.
-};
-
-const PARTS: Part[] = [
-  {
-    id: "pilot",
-    url: "/models/parts/pilot.stl",
-    color: "#a87d52",
-    opacity: 0.85,
-    metalness: 0.0,
-    roughness: 0.85,
-    label: "pilot torso (placeholder volume)",
-  },
-  {
-    id: "rig_main",
-    url: "/models/parts/rig_main.stl",
-    color: "#3a3a3a",
-    opacity: 0.95,
-    metalness: 0.05,
-    roughness: 0.7,
-    label: "main canopy container",
-  },
-  {
-    id: "rig_reserve",
-    url: "/models/parts/rig_reserve.stl",
-    color: "#a02a2a",
-    opacity: 0.95,
-    metalness: 0.05,
-    roughness: 0.7,
-    label: "reserve canopy container",
-  },
-  {
-    id: "subframe",
-    url: "/models/parts/subframe.stl",
-    color: "#888",
-    opacity: 0.95,
-    metalness: 0.5,
-    roughness: 0.4,
-    label: "wing-mount sub-frame",
-  },
-  {
-    id: "wing",
-    url: "/models/parts/wing.stl",
-    color: "#79a8ff",
-    opacity: 0.5,
-    metalness: 0.05,
-    roughness: 0.4,
-    label: "wing OML (DCF skin over ribs)",
-    anim: wingAnim,
-  },
-  {
-    id: "front_spar",
-    url: "/models/parts/front_spar.stl",
-    color: "#1a1a1a",
-    opacity: 0.95,
-    metalness: 0.6,
-    roughness: 0.3,
-    label: "front spar (telescoping CFRP, 73 mm OD root)",
-    anim: sparAnim,
-  },
-  {
-    id: "rear_spar",
-    url: "/models/parts/rear_spar.stl",
-    color: "#3a3a3a",
-    opacity: 0.95,
-    metalness: 0.6,
-    roughness: 0.3,
-    label: "rear spar (telescoping CFRP, 30 mm OD root)",
-    anim: sparAnim,
-  },
-  {
-    id: "stubs",
-    url: "/models/parts/stubs.stl",
-    color: "#cc2222",
-    opacity: 0.9,
-    metalness: 0.5,
-    roughness: 0.3,
-    label: "post-jettison stubs (visible after wing departs)",
-    anim: stubAnim,
-  },
+const STOWED: Keyframe[] = [
+  { url: "/models/stowed/torso.stl", color: "#a87d52", opacity: 0.9 },
+  { url: "/models/stowed/head.stl", color: "#c4956a", opacity: 0.95 },
+  { url: "/models/stowed/spine_yoke.stl", color: "#1a1a1a", opacity: 0.95 },
+  { url: "/models/stowed/upper_arm_right.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/stowed/forearm_right.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/stowed/hand_right.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/stowed/upper_arm_left.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/stowed/forearm_left.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/stowed/hand_left.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/stowed/le_spar_right.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/stowed/le_spar_left.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/stowed/upper_leg_right.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/stowed/lower_leg_right.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/stowed/upper_leg_left.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/stowed/lower_leg_left.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/stowed/te_spar_right_stage1.stl", color: "#444", opacity: 0.95 },
+  { url: "/models/stowed/te_spar_right_stage2.stl", color: "#444", opacity: 0.95 },
+  { url: "/models/stowed/te_spar_right_stage3.stl", color: "#444", opacity: 0.95 },
+  { url: "/models/stowed/te_spar_left_stage1.stl", color: "#444", opacity: 0.95 },
+  { url: "/models/stowed/te_spar_left_stage2.stl", color: "#444", opacity: 0.95 },
+  { url: "/models/stowed/te_spar_left_stage3.stl", color: "#444", opacity: 0.95 },
+  { url: "/models/stowed/wrist_ext_right_stage1.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/stowed/wrist_ext_right_stage2.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/stowed/wrist_ext_right_stage3.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/stowed/wrist_ext_left_stage1.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/stowed/wrist_ext_left_stage2.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/stowed/wrist_ext_left_stage3.stl", color: "#222", opacity: 0.95 },
 ];
 
-const RESERVE_CONE_PART: Part = {
-  id: "reserve_cone",
-  url: "/models/parts/reserve_cone.stl",
-  color: "#ffaa00",
-  opacity: 0.18,
-  metalness: 0.0,
-  roughness: 0.8,
-  label: "reserve canopy deployment cone (30° half-angle)",
-};
-
-// Stowed-configuration parts (wing folded, ribs coiled)
-const STOWED_PARTS: Part[] = [
-  {
-    id: "stowed_spars",
-    url: "/models/stowed/stowed_spars.stl",
-    color: "#1a1a1a",
-    opacity: 0.95,
-    metalness: 0.6,
-    roughness: 0.3,
-    label: "spars retracted, body-axis stowed",
-  },
-  {
-    id: "stowed_ribs",
-    url: "/models/stowed/stowed_ribs.stl",
-    color: "#777",
-    opacity: 0.95,
-    metalness: 0.4,
-    roughness: 0.4,
-    label: "tape-spring ribs coiled around spars",
-  },
+const DEPLOYED: Keyframe[] = [
+  { url: "/models/deployed/torso.stl", color: "#a87d52", opacity: 0.9 },
+  { url: "/models/deployed/head.stl", color: "#c4956a", opacity: 0.95 },
+  { url: "/models/deployed/spine_yoke.stl", color: "#1a1a1a", opacity: 0.95 },
+  { url: "/models/deployed/upper_arm_right.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/deployed/forearm_right.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/deployed/hand_right.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/deployed/upper_arm_left.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/deployed/forearm_left.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/deployed/hand_left.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/deployed/le_spar_right.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/deployed/le_spar_left.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/deployed/upper_leg_right.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/deployed/lower_leg_right.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/deployed/upper_leg_left.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/deployed/lower_leg_left.stl", color: "#a87d52", opacity: 0.85 },
+  { url: "/models/deployed/le_spar_right.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/deployed/le_spar_left.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/deployed/te_spar_right_stage1.stl", color: "#444", opacity: 0.95 },
+  { url: "/models/deployed/te_spar_right_stage2.stl", color: "#444", opacity: 0.95 },
+  { url: "/models/deployed/te_spar_right_stage3.stl", color: "#444", opacity: 0.95 },
+  { url: "/models/deployed/te_spar_left_stage1.stl", color: "#444", opacity: 0.95 },
+  { url: "/models/deployed/te_spar_left_stage2.stl", color: "#444", opacity: 0.95 },
+  { url: "/models/deployed/te_spar_left_stage3.stl", color: "#444", opacity: 0.95 },
+  { url: "/models/deployed/wrist_ext_right_stage1.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/deployed/wrist_ext_right_stage2.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/deployed/wrist_ext_right_stage3.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/deployed/wrist_ext_left_stage1.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/deployed/wrist_ext_left_stage2.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/deployed/wrist_ext_left_stage3.stl", color: "#222", opacity: 0.95 },
+  { url: "/models/deployed/skin_right.stl", color: "#79a8ff", opacity: 0.45 },
+  { url: "/models/deployed/skin_left.stl", color: "#79a8ff", opacity: 0.45 },
 ];
 
-function StlPart({
-  part,
-  deployState,
-  visible = true,
+function StlMesh({
+  url,
+  color,
+  opacity,
+  visible,
 }: {
-  part: Part;
-  deployState: number;
-  visible?: boolean;
+  url: string;
+  color: string;
+  opacity: number;
+  visible: boolean;
 }) {
-  const geom = useLoader(STLLoader, part.url) as THREE.BufferGeometry;
-  const meshRef = useRef<THREE.Mesh>(null);
-
-  useFrame(() => {
-    const m = meshRef.current;
-    if (!m) return;
-    if (part.anim?.scale) {
-      const [sx, sy, sz] = part.anim.scale(deployState);
-      m.scale.set(sx, sy, sz);
-    } else {
-      m.scale.set(1, 1, 1);
-    }
-    if (part.anim?.rotation) {
-      const [rx, ry, rz] = part.anim.rotation(deployState);
-      m.rotation.set(rx, ry, rz);
-    } else {
-      m.rotation.set(0, 0, 0);
-    }
-    if (part.anim?.position) {
-      const [px, py, pz] = part.anim.position(deployState);
-      m.position.set(px, py, pz);
-    }
-  });
-
-  if (!visible) return null;
-
+  const geom = useLoader(STLLoader, url) as THREE.BufferGeometry;
   return (
-    <mesh ref={meshRef} geometry={geom} castShadow receiveShadow>
+    <mesh geometry={geom} visible={visible} castShadow receiveShadow>
       <meshStandardMaterial
-        color={part.color}
-        opacity={part.opacity ?? 1}
-        transparent={(part.opacity ?? 1) < 1}
-        metalness={part.metalness ?? 0.1}
-        roughness={part.roughness ?? 0.55}
+        color={color}
+        opacity={opacity}
+        transparent={opacity < 1}
+        metalness={0.1}
+        roughness={0.55}
         side={THREE.DoubleSide}
       />
     </mesh>
   );
 }
 
-function Scene({
-  deployState,
-  showReserveCone,
-  showStubs,
-}: {
-  deployState: number;
-  showReserveCone: boolean;
-  showStubs: boolean;
-}) {
-  // Crossfade between stowed (s≈0) and deployed (s≈1) configurations.
-  // Below 0.10 we show the stowed parts; above we transition to deployed.
-  const showStowed = deployState < 0.15 && !showReserveCone;
+function Scene({ deployState }: { deployState: number }) {
+  // Crossfade: opacity weights interpolate between stowed and deployed
+  // At s = 0.0 → show stowed (alpha = 1, deployed alpha = 0)
+  // At s = 1.0 → show deployed (alpha = 1, stowed alpha = 0)
+  // To avoid double-rendering everything on top of itself, we hard-switch
+  // at s = 0.5 with a 0.10-wide crossfade band.
+  const showStowed = deployState < 0.55;
+  const showDeployed = deployState > 0.45;
+
+  // Within the crossfade band, mix the alphas for a smooth visual
+  let stowedAlpha = 1.0;
+  let deployedAlpha = 1.0;
+  if (deployState < 0.45) {
+    deployedAlpha = 0.0;
+  } else if (deployState > 0.55) {
+    stowedAlpha = 0.0;
+  } else {
+    const t = (deployState - 0.45) / 0.10;
+    stowedAlpha = 1 - t;
+    deployedAlpha = t;
+  }
+
   return (
     <>
       <hemisphereLight args={["#fff8e6", "#1a2138", 0.65]} />
@@ -264,50 +148,29 @@ function Scene({
       <directionalLight position={[-2, -3, 1]} intensity={0.25} />
 
       <group>
-        {/* Static body parts (always visible — pilot, rig, sub-frame) */}
-        {PARTS.filter((p) =>
-          ["pilot", "rig_main", "rig_reserve", "subframe"].includes(p.id)
-        ).map((p) => (
-          <StlPart key={p.id} part={p} deployState={deployState} visible={true} />
+        {STOWED.map((p) => (
+          <StlMesh
+            key={`s_${p.url}`}
+            url={p.url}
+            color={p.color}
+            opacity={p.opacity * stowedAlpha}
+            visible={showStowed && stowedAlpha > 0.01}
+          />
         ))}
-
-        {/* Stowed-config airframe parts (visible only at low deploy state) */}
-        {showStowed
-          ? STOWED_PARTS.map((p) => (
-              <StlPart key={p.id} part={p} deployState={deployState} visible={true} />
-            ))
-          : PARTS.filter((p) => ["wing", "front_spar", "rear_spar"].includes(p.id)).map(
-              (p) => (
-                <StlPart
-                  key={p.id}
-                  part={p}
-                  deployState={deployState}
-                  visible={!showReserveCone}
-                />
-              )
-            )}
-
-        {/* Stubs visible only post-jettison */}
-        {(showReserveCone || showStubs) && (
-          <StlPart
-            part={PARTS.find((p) => p.id === "stubs")!}
-            deployState={deployState}
-            visible={true}
+        {DEPLOYED.map((p) => (
+          <StlMesh
+            key={`d_${p.url}`}
+            url={p.url}
+            color={p.color}
+            opacity={p.opacity * deployedAlpha}
+            visible={showDeployed && deployedAlpha > 0.01}
           />
-        )}
-
-        {showReserveCone && (
-          <StlPart
-            part={RESERVE_CONE_PART}
-            deployState={deployState}
-            visible={true}
-          />
-        )}
+        ))}
       </group>
 
       <gridHelper
         args={[10, 20, "#1a3a8e", "#222"]}
-        position={[0, -0.36, 0]}
+        position={[0, -0.40, 0]}
       />
     </>
   );
@@ -317,39 +180,48 @@ type ViewerProps = {
   height?: number;
 };
 
+const PLAY_DURATION_MS = 2000;
+
 export default function Viewer({ height = 620 }: ViewerProps) {
   const [deployState, setDeployState] = useState(1.0);
-  const [autoDeploy, setAutoDeploy] = useState(false);
-  const [showReserveCone, setShowReserveCone] = useState(false);
-  const [showStubs, setShowStubs] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
 
-  // Auto-deploy: ramp from 0 → 1 over 4s, then hold
   useEffect(() => {
-    if (!autoDeploy) return;
+    if (!playing) return;
     let raf = 0;
     const start = performance.now();
     setDeployState(0);
     const tick = () => {
-      const t = (performance.now() - start) / 4000;
+      const t = (performance.now() - start) / PLAY_DURATION_MS;
       if (t >= 1) {
         setDeployState(1);
+        setPlaying(false);
       } else {
-        setDeployState(Math.max(0, t));
+        const eased = t * t * (3 - 2 * t); // smooth cubic
+        setDeployState(eased);
         raf = requestAnimationFrame(tick);
       }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [autoDeploy]);
+  }, [playing]);
+
+  const phaseLabel = (() => {
+    if (deployState < 0.05) return "STOWED";
+    if (deployState < 0.50) return "Phase A — arms + legs spreading";
+    if (deployState < 0.70) return "Phase B — tip extensions firing";
+    if (deployState < 0.95) return "Phase D — skin tensioning";
+    return "DEPLOYED — glide";
+  })();
 
   return (
     <div className="relative w-full" style={{ height }}>
       <Canvas
         shadows
-        camera={{ position: [4.2, 3.0, 5.0], fov: 35, near: 0.05, far: 60 }}
+        camera={{ position: [4.0, 2.6, 4.6], fov: 38, near: 0.05, far: 60 }}
         onCreated={({ scene }) => {
-          // Body frame is z-up; Three.js default is y-up.
+          // Body frame is z-up (our CAD convention); Three.js camera is y-up.
           // Rotate the entire scene root so vehicle z aligns with viewport y.
           scene.rotation.x = -Math.PI / 2;
           scene.background = new THREE.Color("#0a0a0c");
@@ -362,44 +234,44 @@ export default function Viewer({ height = 620 }: ViewerProps) {
             </Html>
           }
         >
-          <Scene
-            deployState={deployState}
-            showReserveCone={showReserveCone}
-            showStubs={showStubs}
-          />
+          <Scene deployState={deployState} />
         </Suspense>
         <OrbitControls
           enableDamping
           dampingFactor={0.06}
           autoRotate={autoRotate}
-          autoRotateSpeed={0.5}
-          minDistance={1.5}
+          autoRotateSpeed={0.45}
+          minDistance={1.2}
           maxDistance={20}
-          target={[1.0, 0, 0]}
+          target={[-0.3, 0, 0]}
         />
       </Canvas>
 
-      {/* Controls overlay */}
       <div className="absolute top-3 right-3 flex flex-col gap-2 max-w-[220px]">
         <button
-          onClick={() => {
-            setShowReserveCone(false);
-            setAutoDeploy((v) => !v);
-            if (autoDeploy) setDeployState(1);
-          }}
-          className="rounded-md bg-orange-500/90 hover:bg-orange-500 border border-orange-400 px-3 py-1.5 text-xs text-zinc-950 font-medium transition"
+          onClick={() => setPlaying(true)}
+          disabled={playing}
+          className="rounded-md bg-orange-500/90 hover:bg-orange-500 disabled:opacity-40 border border-orange-400 px-3 py-1.5 text-xs text-zinc-950 font-medium transition"
         >
-          {autoDeploy ? "Stop deploy" : "Play deployment"}
+          {playing ? "Deploying…" : "▶ Play deployment"}
         </button>
         <button
           onClick={() => {
-            setShowReserveCone((v) => !v);
-            setShowStubs(true);
+            setPlaying(false);
+            setDeployState(0);
+          }}
+          className="rounded-md bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 transition"
+        >
+          ⤴ Stowed (0%)
+        </button>
+        <button
+          onClick={() => {
+            setPlaying(false);
             setDeployState(1);
           }}
           className="rounded-md bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 transition"
         >
-          {showReserveCone ? "Back to deployed" : "Show jettison + reserve cone"}
+          ⤵ Deployed (100%)
         </button>
         <button
           onClick={() => setAutoRotate((v) => !v)}
@@ -409,8 +281,7 @@ export default function Viewer({ height = 620 }: ViewerProps) {
         </button>
       </div>
 
-      {/* Deploy slider */}
-      <div className="absolute bottom-3 left-3 right-3 flex items-center gap-3 bg-zinc-900/80 border border-zinc-800 px-3 py-2 rounded-md text-xs">
+      <div className="absolute bottom-3 left-3 right-3 flex items-center gap-3 bg-zinc-900/85 border border-zinc-800 px-3 py-2 rounded-md text-xs">
         <span className="text-zinc-500 whitespace-nowrap">deploy</span>
         <input
           type="range"
@@ -420,17 +291,20 @@ export default function Viewer({ height = 620 }: ViewerProps) {
           value={deployState}
           onChange={(e) => {
             setDeployState(parseFloat(e.target.value));
-            setAutoDeploy(false);
+            setPlaying(false);
           }}
-          className="w-full accent-orange-500"
+          className="flex-1 accent-orange-500"
           aria-label="deployment state"
         />
         <span className="mono text-zinc-300 tabular-nums w-10 text-right">
           {(deployState * 100).toFixed(0)}%
         </span>
+        <span className="hidden md:inline text-zinc-400 ml-2 text-[11px] uppercase tracking-wider">
+          {phaseLabel}
+        </span>
       </div>
-      <div className="absolute top-3 left-3 text-[11px] text-zinc-500 max-w-[280px]">
-        drag to orbit · scroll to zoom · slider scrubs deployment
+      <div className="absolute top-3 left-3 text-[11px] text-zinc-500 max-w-[300px]">
+        drag to orbit · scroll to zoom · arms extend then tip booms snap out
       </div>
     </div>
   );

@@ -2,111 +2,173 @@
 
 ## What this is
 
-A deployable rigid-wing personal flight system. Pilot-worn airframe with telescoping carbon fiber spars and bistable composite tape-spring ribs that deploy from a stowed (body-conformal) state to a high aspect-ratio swept flying wing in flight, targeting hang-glider-class glide performance from a wingsuit-class form factor.
+A **deployable rigid-wing extension to a wingsuit-style flight system**.
+The pilot wears a fitted wingsuit-derivative garment with an integrated
+deployable structure: a CFRP spine yoke mounted on the back, with
+arm-aligned and leg-aligned spars that brace into position as the pilot
+spreads to a flight pose. Telescoping tip extensions from the wrists and
+ankles complete the wingspan. Deployable rapidly — in flight from
+freefall posture, or on the ground from a packed configuration.
 
-This is a real flight vehicle development program disguised as a piece of sporting goods. Treat it as such.
+This is a real flight vehicle development program disguised as a piece
+of sporting goods. Treat it as such.
+
+## Architecture (locked unless evidence forces a change)
+
+1. **Pilot is the fuselage.** Pilot wears a fitted, fabric-skinned
+   harness garment (wingsuit-derivative) with an integrated CFRP spine
+   yoke along the back. Pilot's body forms the central wing chord.
+
+2. **Two-spar, four-arm-braced structure.** Per side:
+   - **Leading-edge (LE) spar:** rigid CFRP boom, hinged at the spine
+     yoke at the shoulder. Runs along the pilot's arm (underside,
+     bonded to the harness sleeve) from shoulder to wrist. The pilot's
+     arm fits alongside the spar; the spar carries the bending load,
+     the arm provides the aerodynamic shape and control input.
+   - **Trailing-edge (TE) spar:** mirror geometry along the pilot's
+     leg, hinged at a hip yoke, from hip to ankle.
+   - **Wrist tip extension:** 3-stage telescoping CFRP boom from the
+     wrist hub outward to the wingtip leading edge. Pneumatic CO₂
+     extension.
+   - **Ankle tip extension:** mirror, from ankle hub to wingtip
+     trailing edge. Pneumatic CO₂ extension, sequenced with the wrist
+     extension for symmetric deploy.
+
+3. **Bistable CFRP tape-spring ribs.** 9 per side, span chordwise
+   between LE and TE spars. Coiled at the spar in stowed; snap-deploy
+   as the spars reach their locked positions. Passive — no power
+   required.
+
+4. **DCF skin.** ~50 g/m², bonded to ribs and to the harness body
+   panels, tensioned by full deployment of the structure.
+
+5. **Wing planform — locked.** S = 8.4 m², b = 7.4 m, AR = 6.5,
+   25° LE sweep, taper ratio 0.4, 6° tip washout (top-of-BRIEF range
+   per the trim study). Geometry is independent of integration; the
+   aero analyses in `analysis/aero/` apply unchanged.
+
+6. **Deployment sequence (~0.6 s end-to-end):**
+   - **Phase A (~0.3 s):** pilot extends arms and legs outward from
+     stowed posture. Pneumatic shoulder/hip yokes assist and lock the
+     spars at the deployed sweep angle.
+   - **Phase B (~0.1 s):** CO₂ fires; telescoping tip extensions snap
+     out from wrist and ankle hubs simultaneously. Sequenced through
+     a single valve per side for symmetry (active modulation per the
+     symmetry-budget analysis).
+   - **Phase C (~0.05 s):** bistable ribs snap to open shape as the
+     extended spars pass them.
+   - **Phase D (passive):** skin tensions across the deployed
+     structure; FCS captures trimmed glide.
+
+7. **In-flight deployability.** Because the deployment is the pilot
+   spreading from a tucked posture to spread-eagle, it works equally
+   well from a stable freefall posture (no drogue stabilization
+   needed — spread-eagle freefall is self-stable) or from the ground
+   (e.g., for cliff-launch or aircraft-floor pre-deploy).
+
+8. **Fly-by-wire control.** Redundant Pixhawk-class FCS, EKF at 400 Hz,
+   MEMS IMUs. Flaperons (servo-driven, brushless waterproof) on the
+   trailing-edge tip extensions. Pilot also has body-control authority
+   via shoulder/hip rotation against the locked spar — a hybrid
+   control path that maps directly to wingsuit pilot intuition. The
+   alpha limiter remains a structural design assumption.
+
+9. **Reserve canopy compatibility.** Reserve container is on the
+   pilot's back, ABOVE the spine yoke (where the FCS bay sits in
+   front of the reserve PC launch path). After tip-extension retract
+   OR yoke release (the yoke spar pivots disengage from the spine on
+   command), the rigid structure folds clear of the reserve cone.
+   No pyrotechnic spar-root cutters required — disengagement is
+   mechanical, latched, and reversible.
+
+10. **Pilot fully retains wingsuit mode.** If the rigid structure is
+    fully retracted (tip extensions in, yokes folded), the pilot is
+    in a fabric-wingsuit configuration and can fly under fabric-wing
+    control to a normal canopy descent. This is the architectural
+    fallback.
 
 ## Performance targets
 
 - Glide ratio: 10:1 design target, 13:1 stretch (vs. 3:1 wingsuit, 16:1 hang glider)
-- Best-glide airspeed: 25 m/s (56 mph)
-- Stall speed: under 14 m/s (31 mph)
+- Best-glide airspeed: ~16 m/s (per the glide-polar analysis — see
+  finding #1 in the open issues)
+- Stall speed: under 14 m/s
 - Pilot mass envelope: 70-95 kg
-- Wing area: 8.4 m² (90 sq ft)
-- Span: 7.4 m (24.3 ft) deployed
+- Wing area: 8.4 m²
+- Span: 7.4 m deployed
 - Aspect ratio: 6.5
-- Wing loading: ~10.5 kg/m²
-- Wing system mass budget: 15.5 kg
-- Stowed package thickness: under 15 cm off body profile
+- Wing loading: ~12 kg/m² (with structurally-correct mass per finding #2)
+- Wing system mass budget: ~16.5 kg (per the bending-sized spar — see
+  finding #2)
+- Stowed package thickness (off body): TBD per the new architecture;
+  the BRIEF v1 target of 150 mm was for a wing-on-rig-stack design that
+  did not work — the arm-braced architecture is much thinner because
+  the structure runs along the arms/legs rather than on top of the
+  pilot's back.
 
-## Architecture decisions (locked unless evidence forces a change)
+## Open architecture-amendment findings (from the analysis)
 
-1. Two-spar wing per side, both CFRP telescoping tubes, 3-stage. Front spar 40mm OD root / 25mm tip / 2mm wall. Rear spar 30mm/18mm/2mm.
-2. 9 ribs per side, bistable CFRP tape-spring booms, passive snap-deploy, store coiled flat against the spar.
-3. Skin: Dyneema Composite Fabric (DCF), ~50 g/m², bonded to ribs, tensioned by deployment.
-4. Planform: 25° leading-edge sweep, taper ratio 0.4, tip washout 4-6° for tailless flying-wing pitch stability.
-5. Pneumatic deployment via single CO2 cartridge per side, sequenced from a single valve to enforce sub-10ms left/right symmetry. Tape-spring ribs unfurl passively.
-6. Drogue-first deployment sequence: small ringslot drogue decelerates pilot from terminal (~55 m/s) to ~30 m/s before main wing deployment. Non-negotiable; deployment loads scale with q.
-7. Fly-by-wire control. Redundant Pixhawk-class FCS, EKF at 400 Hz, MEMS IMUs. Flaperons (servo-driven, brushless waterproof) on outer trailing edge each side. Mechanical reversion to direct cable as last-resort backup.
-8. Wing harness sits ON TOP OF a standard piggyback skydiving rig (main + reserve). Four pyrotechnic spar-root cutters fully jettison the wing assembly on command, on AAD trigger, or on detected asymmetric deployment. Reserve canopy deploys clean over the head with no wing-structure occlusion.
+These came out of deliverables #1–#6 + the architecture rebuild:
 
-## Hard constraints
+1. **V_bg ≈ 16 m/s, not 25 m/s** — the wing's natural best-glide is
+   ~16 m/s with the locked planform (analysis/aero/lift_drag/).
+2. **Front spar must grow** to 73 mm OD root, 2.5 mm wall (was
+   40 mm/2 mm) — bending analysis surfaced the original spec failed
+   at 3 g limit.
+3. **Active per-side flow modulation** (rather than passive matched-
+   impedance manifold) is required to close the 10 ms 3-σ symmetry
+   budget.
+4. **The fundamental architecture was wrong** — the prior BRIEF
+   described an aircraft-on-pilot's-back configuration with
+   pyrotechnic root cutters, a stowed-package-on-rig stack, and a
+   wing planform floating above the pilot. The CORRECT concept is the
+   arm-braced wingsuit-extension architecture defined above. This
+   amendment supersedes architecture decisions in BRIEF v1.
 
-- Reserve parachute compatibility is non-negotiable. The skydiving rig functions normally for canopy flight and landing after wing jettison. Anything that compromises that is a non-starter.
-- Asymmetric deployment is the dominant unrecoverable failure mode. All design decisions defer to mitigating it.
-- Stall departure on a tailless high-AR wing is unforgiving. Alpha limiter in the FCS is mandatory; not a feature, a structural design assumption.
-- All deployment-critical components have at least one independent backup path or sensed-and-aborted failure mode.
-
-## Known unsolved problems
-
-These are the open research items, in rough order of risk:
-1. Sub-10ms deployment symmetry under representative loads, in cold and wet conditions.
-2. Tailless flying-wing pitch stability with a moving human "fuselage" (head and torso CG shifts perturb trim).
-3. Stall behavior characterization on the specific airfoil and planform; departure prevention via active envelope protection.
-4. Telescoping CFRP joint reliability with water and ice ingress.
-5. Pilot training transition path from fabric wingsuit to fly-by-wire rigid wing.
-
-## Repo structure
-
-```
-manta/
-├── BRIEF.md                  # this file
-├── docs/
-│   ├── 00-design-rationale.md
-│   ├── 01-aero-sizing.md
-│   ├── 02-structural-budget.md
-│   ├── 03-deployment-sequence.md
-│   ├── 04-fcs-architecture.md
-│   ├── 05-emergency-systems.md
-│   └── 06-test-plan.md
-├── analysis/
-│   ├── aero/                 # XFOIL, AVL, OpenVSP models
-│   ├── struct/               # spar bending, FEA inputs, mass budget
-│   ├── deployment/           # pneumatic timing, rib unfurl dynamics
-│   └── flightdynamics/       # AVL/Athena trim, stability derivatives
-├── cad/                      # FreeCAD natives, STEP exports, parametric Python
-├── fcs/
-│   ├── firmware/             # Pixhawk fork or PX4 module
-│   ├── sim/                  # SITL configs, model
-│   └── envelope-protection/
-├── test/
-│   ├── ground/               # static deployment rig specs
-│   ├── tow/                  # boat/vehicle tow article
-│   └── drop/                 # static drop article
-└── safety/
-    ├── fmea.md
-    ├── reserve-compat.md
-    └── failure-modes/
-```
-
-## First deliverables (priority order)
+## First deliverables (revised priority)
 
 Build in this order. Do not skip ahead.
 
-1. `docs/01-aero-sizing.md` and `analysis/aero/`: AVL model of the swept-wing planform with the trim and stability derivatives. Verify the 10:1 L/D target is achievable at the design CL with reasonable Cd0 assumptions for the body fairing. Iterate sweep, taper, and washout for positive static margin without a tail.
-2. `analysis/struct/mass-budget.xlsx` (or .py / .csv, your call): full mass rollup, with sensitivity to spar wall thickness, rib count, and skin areal density.
-3. `analysis/struct/spar-bending.py`: parametric model of root bending moment vs. n-load, validates the 40mm/2mm spar at 3g limit with safety factor.
-4. `docs/03-deployment-sequence.md`: full timeline, sensed handshakes, abort logic. This is the document a safety case will be built around.
-5. `analysis/deployment/symmetry-budget.md`: error budget for left-right deployment timing. CO2 cartridge variability, valve actuation variance, tape-spring deployment dynamics. Must close to under 10ms 3-sigma or the architecture has to change.
-6. Standalone deployment subsystem ground rig specification (`test/ground/`). This is the first piece of hardware to actually build: instrumented, no flight loads, just prove the deployment kinematics and timing.
-
-Do not move to flight-relevant test articles until the ground deployment rig has demonstrated reliable, symmetric, sensed deployment over the full thermal and humidity envelope, in at least 200 cycles without intervention.
+1. `cad/build.py` — single parametric build of the integrated
+   architecture: pilot humanoid, spine yoke, arm/leg spars,
+   telescoping tips, ribs, skin. Driven by `deploy_state ∈ [0,1]`.
+2. `cad/render.py` — multi-view static render + animation frames.
+3. `site/src/components/viewer/Viewer.tsx` — interactive 3D viewer
+   with bone-hierarchy animation matching the deployment sequence.
+4. `analysis/struct/spar_bending.py` — load case update for the
+   arm-aligned spar (cantilever from the shoulder/hip yoke, not from
+   a sub-frame on a rig). Magnitude similar but the load path is
+   different.
+5. `analysis/deployment/state_machine.py` — phases A-B-C-D timing per
+   the new sequence.
+6. `test/ground/spec.md` — ground rig spec updated for the new
+   deployment kinematics (arm-spread, tip-extend, rib-snap).
 
 ## Tools and software stack
 
-- Aero: AVL (vortex lattice), XFOIL (airfoil), OpenVSP (geometry). Optional later: SU2 or OpenFOAM CFD for high-fidelity verification.
-- Structural: hand calcs in Python, FEA via CalculiX or FreeCAD FEM workbench for spars and root joints.
-- CAD: FreeCAD natives (.FCStd) with STEP exports for OnShape import. Parametric geometry driven from Python where it tracks analysis inputs (CadQuery acceptable).
-- FCS: PX4 fork, ArduPilot as reference. SITL for envelope-protection development.
-- Repo: standard git, conventional commits. Treat docs as code, review them.
+- Aero: AVL (vortex lattice), XFOIL (airfoil), OpenVSP (geometry).
+  Optional later: SU2 or OpenFOAM CFD.
+- Structural: hand calcs in Python, FEA via CalculiX or FreeCAD FEM
+  workbench for the spine yoke and shoulder/hip pivots.
+- CAD: CadQuery (FreeCAD-importable STEP) parametric, single source
+  of truth at `cad/build.py`.
+- FCS: PX4 fork (or ArduPilot reference). SITL for envelope-protection
+  development.
+- Site: Astro + Tailwind + R3F (Three.js) for the live 3D viewer.
 
 ## Engineering culture
 
-This project kills people if done sloppily. Every analysis is reviewable. Every assumption is cited. Every safety-critical claim has a test that backs it. No vibes-based engineering. The bar is: would this analysis hold up if a coroner's office asked for it.
+This project kills people if done sloppily. Every analysis is
+reviewable. Every assumption is cited. Every safety-critical claim
+has a test that backs it. No vibes-based engineering. The bar is:
+would this analysis hold up if a coroner's office asked for it.
 
 ## Out of scope (for now)
 
-- Powered variants (jet, electric ducted fan). Possible later. Not v1.
-- Ground takeoff (foot-launch). v1 is exit-from-aircraft or BASE only.
+- Powered variants. v1 is unpowered glide.
+- Ground takeoff (foot-launch). v1 deploys from spread-eagle posture
+  in freefall or from a high stationary platform (cliff/tower); not a
+  running takeoff.
 - Powered landing without parachute. No.
-- Certification path. Experimental category eventually; for now, treat as research aircraft under existing skydiving regs.
+- Certification path. Experimental research aircraft under existing
+  skydiving regs.
