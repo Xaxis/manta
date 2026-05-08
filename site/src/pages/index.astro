@@ -1,0 +1,214 @@
+---
+import Base from "../layouts/Base.astro";
+import Section from "../components/Section.astro";
+import StatusTable from "../components/StatusTable.astro";
+import MetricCard from "../components/MetricCard.astro";
+---
+
+<Base>
+  <!-- Hero -->
+  <header class="relative overflow-hidden">
+    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,138,61,0.10),transparent_55%)]"></div>
+    <div class="relative mx-auto max-w-6xl px-6 pt-20 pb-14 md:pt-32 md:pb-20">
+      <p class="text-xs uppercase tracking-[0.22em] text-orange-400/80">Project MANTA</p>
+      <h1 class="mt-4 text-4xl md:text-6xl font-semibold tracking-tight text-zinc-50 max-w-4xl leading-[1.05]">
+        A deployable rigid-wing personal flight system.
+      </h1>
+      <p class="mt-6 max-w-3xl text-lg md:text-xl text-zinc-400 leading-relaxed">
+        Pilot-worn airframe — telescoping CFRP spars and bistable tape-spring ribs — that snaps from a body-conformal stowed state into a high-aspect-ratio swept flying wing in flight. Target: hang-glider-class glide (<span class="mono text-zinc-200">10:1</span>) from a wingsuit-class form factor.
+      </p>
+      <p class="mt-4 max-w-3xl text-base text-zinc-500">
+        This is a real flight vehicle program. Treat it as such.
+      </p>
+
+      <div class="mt-8 flex flex-wrap gap-3">
+        <a href="https://github.com/Xaxis/manta" class="inline-flex items-center gap-2 rounded-md bg-orange-500/90 hover:bg-orange-500 px-5 py-2.5 text-sm font-medium text-zinc-950 transition">Source on GitHub →</a>
+        <a href="https://github.com/Xaxis/manta/blob/main/BRIEF.md" class="inline-flex items-center gap-2 rounded-md border border-zinc-700 hover:border-zinc-500 px-5 py-2.5 text-sm font-medium text-zinc-200 transition">Read the BRIEF</a>
+        <a href="#status" class="inline-flex items-center gap-2 rounded-md border border-zinc-800 hover:border-zinc-600 px-5 py-2.5 text-sm text-zinc-400 transition">Program status</a>
+      </div>
+
+      <figure class="mt-12 rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
+        <img src="/img/topview.png" alt="MANTA wing — top view with planform, spars, and cutters" class="w-full" />
+        <figcaption class="px-6 py-3 text-xs text-zinc-500 border-t border-zinc-800">
+          Top view. Wing planform (<span class="mono">S = 8.4 m²</span>, <span class="mono">b = 7.4 m</span>, AR 6.52, sweep 25°, taper 0.4) with the front and rear telescoping spars and four pyrotechnic root cutters overlaid.
+        </figcaption>
+      </figure>
+    </div>
+  </header>
+
+  <Section
+    id="numbers"
+    eyebrow="Headline numbers"
+    title="Reproducible, traceable to source."
+    intro="Every number on this page is regenerable from the repo. Run make aero / make struct / make cad to rebuild the analyses and the visualizations below."
+  >
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <MetricCard label="Wing area" value="8.4" unit="m²" note="Both sides; locked from BRIEF." />
+      <MetricCard label="Span" value="7.4" unit="m" note="Aspect ratio 6.52, taper 0.4, sweep 25°, washout 6°." />
+      <MetricCard label="CL_α (3D, Weissinger)" value="4.24" unit="/rad" note="≈ 0.074 /deg. Helmbold cross-checked." />
+      <MetricCard label="Static margin (design CL)" value="5.4 %" unit="MAC" note="Top-of-BRIEF-range washout. Falls below 4 % at high CL." />
+      <MetricCard label="(L/D)ₘₐₓ" value="12.0" note="At V ≈ 16 m/s, nominal body CdA = 0.20 m². 13.4 with a tighter fairing." />
+      <MetricCard label="L/D at BRIEF V = 25 m/s" value="8.3" tone="warn" note="Below 10:1 target. Architecture decision: revise V_bg." />
+      <MetricCard label="Sized front spar OD" value="73" unit="mm" tone="warn" note="vs. BRIEF 40 mm. BRIEF dimensions fail bending at 3 g limit by ~3× in stress." />
+      <MetricCard label="Wing system mass (sized)" value="16.6" unit="kg" tone="warn" note="vs. BRIEF target 15.5 kg. +1.1 kg from the structurally-correct front spar." />
+      <MetricCard label="Symmetry 3-σ |Δt|" value="16.3" unit="ms" tone="warn" note="vs. BRIEF 10 ms gate — locked architecture FAILS. Option B (active modulation) closes it at 8.1 ms." />
+      <MetricCard label="Pilot 50 mm CG shift" value="3.26 %" unit="MAC" tone="warn" note="≈ entire static margin. Pilot motion alone can destabilize. Alpha limiter mandatory." />
+      <MetricCard label="Tests" value="27 / 27" tone="good" note="Across analysis/ and fcs/. make test reproduces locally." />
+      <MetricCard label="Cutter count" value="4" note="Front + rear, both sides. Pyrotechnic LSC, dual NSI initiators per cutter." />
+    </div>
+  </Section>
+
+  <Section
+    id="findings"
+    eyebrow="What the analysis surfaced"
+    title="Three architecture decisions need to change."
+    intro="The first-cut analyses across deliverables #1–#6 produced three findings that the BRIEF should be amended to reflect. Each is backed by runnable code in the repo; clicking through goes to the doc that defends it."
+  >
+    <div class="grid gap-6 md:grid-cols-3">
+      <article class="rounded-xl border border-orange-500/20 bg-orange-500/[0.04] p-6">
+        <p class="text-xs uppercase tracking-wider text-orange-400/80">Finding #1</p>
+        <h3 class="mt-2 text-xl font-semibold text-zinc-100">V_bg = 16 m/s, not 25 m/s</h3>
+        <p class="mt-3 text-sm text-zinc-400 leading-relaxed">
+          The locked planform's natural best-glide is ~16 m/s. At V = 25 m/s the wing is below its drag bucket — L/D ≈ 8.3, short of the 10:1 target.
+        </p>
+        <p class="mt-3 text-sm text-zinc-300">Recommend restating BRIEF V_bg as ~16 m/s.</p>
+        <a class="mt-4 inline-block text-xs text-orange-300 hover:text-orange-200 underline underline-offset-4" href="https://github.com/Xaxis/manta/blob/main/docs/01-aero-sizing.md">docs/01 →</a>
+      </article>
+
+      <article class="rounded-xl border border-orange-500/20 bg-orange-500/[0.04] p-6">
+        <p class="text-xs uppercase tracking-wider text-orange-400/80">Finding #2</p>
+        <h3 class="mt-2 text-xl font-semibold text-zinc-100">Front spar must grow 40 → 73 mm OD</h3>
+        <p class="mt-3 text-sm text-zinc-400 leading-relaxed">
+          BRIEF dimensions fail bending at 3 g limit by a factor of ~3 in stress. Smallest spar that closes SF ≥ 1.5: 73 / 51 / 25 mm, 2.5 mm wall.
+        </p>
+        <p class="mt-3 text-sm text-zinc-300">Adds +1.1 kg/side and pushes the wing-system budget to ~16.6 kg.</p>
+        <a class="mt-4 inline-block text-xs text-orange-300 hover:text-orange-200 underline underline-offset-4" href="https://github.com/Xaxis/manta/blob/main/docs/02-structural-budget.md">docs/02 →</a>
+      </article>
+
+      <article class="rounded-xl border border-orange-500/20 bg-orange-500/[0.04] p-6">
+        <p class="text-xs uppercase tracking-wider text-orange-400/80">Finding #3</p>
+        <h3 class="mt-2 text-xl font-semibold text-zinc-100">Active per-side flow modulation</h3>
+        <p class="mt-3 text-sm text-zinc-400 leading-relaxed">
+          The locked passive-pneumatic-sequencing architecture (BRIEF #5) cannot close the 10 ms 3-σ symmetry gate. Active modulation drops 3-σ from 16.3 ms to 8.1 ms.
+        </p>
+        <p class="mt-3 text-sm text-zinc-300">Replace passive sequencing with closed-loop sensing.</p>
+        <a class="mt-4 inline-block text-xs text-orange-300 hover:text-orange-200 underline underline-offset-4" href="https://github.com/Xaxis/manta/blob/main/docs/03-deployment-sequence.md">docs/03 →</a>
+      </article>
+    </div>
+  </Section>
+
+  <Section
+    eyebrow="Deliverable #1"
+    title="Aerodynamics"
+    intro="Pure-Python lifting-line, validated against Helmbold (rectangular AR=8: −3.4 %), feeds trim, glide polar, and the parametric wing CAD. AVL deck is shipped alongside for verification."
+  >
+    <div class="grid gap-8 md:grid-cols-2">
+      <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
+        <img src="/img/span_loading.png" alt="Span loading at design CL" class="w-full" />
+        <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">Span loading at design CL = 0.5 (α = 7.7°). Sweep + washout pull peak Cl outboard; root Cl is depressed by trailing-wake downwash.</figcaption>
+      </figure>
+
+      <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
+        <img src="/img/glide_polar.png" alt="Glide polar L/D vs V" class="w-full" />
+        <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">Glide polar across CD0 brackets. (L/D)ₘₐₓ at V ≈ 16 m/s. The BRIEF target V = 25 m/s sits below the drag bucket.</figcaption>
+      </figure>
+
+      <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30 md:col-span-2">
+        <img src="/img/washout_plot.png" alt="Washout sweep" class="w-full" />
+        <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">Trim + washout iteration: SM, x_CG_trim, and tip stall margin vs. washout. Recommend 6° (top of BRIEF range) for 5.4 % SM.</figcaption>
+      </figure>
+    </div>
+  </Section>
+
+  <Section
+    eyebrow="Deliverables #2 + #3"
+    title="Structures"
+    intro="Bending analysis uses Weissinger output as the loading shape, not just elliptical approximation. Surfaces the BRIEF spar dimensions as undersized; sizes a replacement to 1.5 SF at 3 g limit."
+  >
+    <div class="grid gap-8 md:grid-cols-2">
+      <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
+        <img src="/img/bending_curves.png" alt="Bending stress along span" class="w-full" />
+        <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">Bending moment + max-fiber stress along the span at 3 g limit. Front spar carries ~89 % of the bending load (AC at 0.25 c, front spar at 0.20 c, rear spar at 0.65 c).</figcaption>
+      </figure>
+
+      <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
+        <img src="/img/budget_pie_sized.png" alt="Mass budget" class="w-full" />
+        <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">Component mass roll-up with the bending-sized spar. Total 16.6 kg vs. BRIEF target 15.5 kg.</figcaption>
+      </figure>
+    </div>
+  </Section>
+
+  <Section
+    eyebrow="Deliverables #4 + #5"
+    title="Deployment + symmetry budget"
+    intro="State machine implements every gate and abort path; 50,000-trial Monte Carlo characterizes the symmetry budget. The BRIEF 10 ms gate is the binding constraint; the locked architecture cannot meet it."
+  >
+    <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
+      <img src="/img/symmetry_histogram.png" alt="Symmetry budget histogram" class="w-full" />
+      <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">
+        Distribution of |Δt_LR| across 50,000 trials with the locked architecture's input distributions. The 10 ms BRIEF gate (black) sits inside the bulk of the distribution; 3-σ at 16.3 ms (red dashed). Architecture revision required.
+      </figcaption>
+    </figure>
+  </Section>
+
+  <Section
+    eyebrow="FCS architecture"
+    title="Alpha limiter — a structural design assumption."
+    intro="Per BRIEF, the alpha limiter is treated as an invariant the structure depends on, not a feature. Pilot CG perturbations alone can eat the static margin; without active envelope protection, a 50 mm posture shift can destabilize the wing."
+  >
+    <div class="grid gap-8 md:grid-cols-2">
+      <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
+        <img src="/img/scenario_pilot_overcmd.png" alt="Closed-loop scenario" class="w-full" />
+        <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">
+          Closed-loop scenario: pilot demands α = 12° at cruise V = 20 m/s. Limiter saturates the α command at ~9° (α_stall − 2.5° margin) for 83 % of the run; anti-windup holds the inner loop integrator while saturated.
+        </figcaption>
+      </figure>
+
+      <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
+        <img src="/img/hero.png" alt="3D iso view" class="w-full" />
+        <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">
+          Wing OML lofted from the parametric airfoil section through 16 spanwise stations with the front and rear telescoping spars and root cutters overlaid. Generated by <code class="mono">cad/render_hero.py</code>.
+        </figcaption>
+      </figure>
+    </div>
+  </Section>
+
+  <Section
+    id="status"
+    eyebrow="Where each deliverable stands"
+    title="Program status."
+    intro="Every BRIEF first-deliverable closed end-to-end with runnable analysis, real CAD, tests where logic exists, and an explicit open-issues section where the analysis stopped."
+  >
+    <StatusTable />
+  </Section>
+
+  <Section
+    eyebrow="Engineering culture"
+    title="The bar."
+    intro="This project kills people if done sloppily."
+  >
+    <blockquote class="border-l-2 border-orange-500 pl-6 py-3 text-zinc-200">
+      <p class="text-lg leading-relaxed max-w-3xl">
+        Every analysis is reviewable. Every assumption is cited. Every safety-critical claim has a test that backs it. No vibes-based engineering.
+      </p>
+      <p class="mt-4 text-base text-zinc-400">
+        Would this analysis hold up if a coroner's office asked for it?
+      </p>
+    </blockquote>
+
+    <div class="mt-12 grid gap-4 sm:grid-cols-3">
+      <a class="rounded-md border border-zinc-800 hover:border-zinc-600 p-5 transition" href="https://github.com/Xaxis/manta/tree/main/analysis">
+        <p class="text-sm font-semibold text-zinc-100">analysis/</p>
+        <p class="mt-1 text-xs text-zinc-500">aero · struct · deployment · flight dynamics</p>
+      </a>
+      <a class="rounded-md border border-zinc-800 hover:border-zinc-600 p-5 transition" href="https://github.com/Xaxis/manta/tree/main/cad">
+        <p class="text-sm font-semibold text-zinc-100">cad/</p>
+        <p class="mt-1 text-xs text-zinc-500">parametric STEP + STL · wing · spars · jettison · ribs · harness</p>
+      </a>
+      <a class="rounded-md border border-zinc-800 hover:border-zinc-600 p-5 transition" href="https://github.com/Xaxis/manta/tree/main/safety">
+        <p class="text-sm font-semibold text-zinc-100">safety/</p>
+        <p class="mt-1 text-xs text-zinc-500">FMEA · failure-mode write-ups · reserve compatibility</p>
+      </a>
+    </div>
+  </Section>
+</Base>

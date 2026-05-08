@@ -1,0 +1,58 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "MANTA — deployable rigid-wing personal flight system",
+  description = "A real flight vehicle development program disguised as a piece of sporting goods. Deployable rigid-wing system targeting hang-glider-class glide from a wingsuit-class form factor.",
+} = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="en" class="bg-zinc-950 text-zinc-200 antialiased scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="description" content={description} />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+    <style is:global>
+      :root {
+        --accent-orange: #ff8a3d;
+        --accent-blue: #79a8ff;
+      }
+      body {
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        font-feature-settings: "ss01", "cv01", "cv11";
+      }
+      h1, h2, h3, h4 {
+        font-feature-settings: "ss02", "cv01";
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco,
+          Consolas, "Liberation Mono", "Courier New", monospace;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen">
+    <slot />
+    <footer class="mt-32 border-t border-zinc-800 pt-12 pb-12">
+      <div class="mx-auto max-w-6xl px-6">
+        <p class="text-sm text-zinc-500">
+          MANTA is a research-aircraft program. Source, data, and renderings:
+          <a class="underline hover:text-zinc-300" href="https://github.com/Xaxis/manta">github.com/Xaxis/manta</a>.
+        </p>
+        <p class="mt-2 text-xs text-zinc-600">
+          Engineering bar: would this analysis hold up if a coroner's office asked for it?
+          If no, it isn't done.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

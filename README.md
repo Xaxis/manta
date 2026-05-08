@@ -108,6 +108,7 @@ Three findings the analysis has surfaced — each needs a decision before flight
 | [`fcs/`](fcs/) | Flight control system: alpha limiter, SITL simulator, envelope-protection unit tests. |
 | [`test/`](test/) | Test article specifications: ground deployment rig, tow article, drop article. |
 | [`safety/`](safety/) | FMEA, reserve-parachute compatibility, per-failure-mode write-ups. |
+| [`site/`](site/) | Astro + Tailwind static project site that pulls all of the above into a single landing page. `cd site && bun install && bun run dev`. |
 
 ## Reproducibility
 

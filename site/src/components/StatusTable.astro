@@ -1,0 +1,49 @@
+---
+const rows = [
+  { id: "#1", title: "Aero sizing", doc: "docs/01-aero-sizing.md", tests: 5, status: "first-cut" },
+  { id: "#2", title: "Mass budget", doc: "docs/02-structural-budget.md", tests: 8, status: "first-cut" },
+  { id: "#3", title: "Spar bending", doc: "docs/02-structural-budget.md", tests: 8, status: "first-cut" },
+  { id: "#4", title: "Deployment sequence", doc: "docs/03-deployment-sequence.md", tests: 7, status: "first-cut" },
+  { id: "#5", title: "Symmetry budget", doc: "analysis/deployment/symmetry-budget.md", tests: 0, status: "first-cut — fails 10 ms gate" },
+  { id: "#6", title: "Ground rig spec", doc: "test/ground/spec.md", tests: 0, status: "spec drafted" },
+  { id: "+",  title: "FCS architecture + alpha limiter", doc: "docs/04-fcs-architecture.md", tests: 7, status: "in progress" },
+  { id: "+",  title: "Emergency systems", doc: "docs/05-emergency-systems.md", tests: 0, status: "first-cut" },
+  { id: "+",  title: "Test plan", doc: "docs/06-test-plan.md", tests: 0, status: "first-cut" },
+];
+---
+
+<div class="overflow-x-auto rounded-lg border border-zinc-800">
+  <table class="w-full text-sm">
+    <thead class="bg-zinc-900/60 text-left text-xs uppercase tracking-wider text-zinc-400">
+      <tr>
+        <th class="px-4 py-3">BRIEF</th>
+        <th class="px-4 py-3">Deliverable</th>
+        <th class="px-4 py-3">Doc</th>
+        <th class="px-4 py-3 text-right">Tests</th>
+        <th class="px-4 py-3">Status</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-zinc-800">
+      {rows.map((r) => (
+        <tr class="hover:bg-zinc-900/40">
+          <td class="px-4 py-3 mono text-orange-300/90">{r.id}</td>
+          <td class="px-4 py-3 text-zinc-200">{r.title}</td>
+          <td class="px-4 py-3">
+            <a class="underline decoration-zinc-600 underline-offset-4 hover:text-orange-300 hover:decoration-orange-400 mono text-xs" href={`https://github.com/Xaxis/manta/blob/main/${r.doc}`}>
+              {r.doc}
+            </a>
+          </td>
+          <td class="px-4 py-3 mono text-right">
+            {r.tests > 0 ? (
+              <span class="text-emerald-400">{r.tests} ✓</span>
+            ) : (
+              <span class="text-zinc-600">—</span>
+            )}
+          </td>
+          <td class="px-4 py-3 text-zinc-400 text-xs">{r.status}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+<p class="mt-4 text-xs text-zinc-500">27 / 27 tests passing across <code class="mono">analysis/</code> and <code class="mono">fcs/</code>.</p>
