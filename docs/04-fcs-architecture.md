@@ -187,11 +187,49 @@ of which to fork is deferred to firmware-team selection; the limiter and
 state-machine modules in [`fcs/`](../fcs/) are framework-agnostic Python
 prototypes that translate cleanly to either.
 
+## Lateral-directional dynamics
+
+Implementation: [`analysis/flightdynamics/lateral.py`](../analysis/flightdynamics/lateral.py).
+
+First-cut estimates of the stability derivatives (Roskam Vol. I tables for
+swept tailless wing, no vertical tail) feed a 4-state lateral state-space
+[β, p, r, φ]. Headline findings across the operational speed range:
+
+| Mode | V = 16 m/s (V_bg) | V = 20 m/s (cruise) | V = 25 m/s | Verdict |
+|---|---|---|---|---|
+| Dutch roll | ω_n = 2.40, ζ = +0.29 | ω_n = 2.35, ζ = +0.26 | ω_n = 2.55, ζ = +0.27 | **Level 2** (acceptable but light) |
+| Roll mode | τ = 0.064 s | τ = 0.049 s | τ = 0.039 s | crisp |
+| Spiral mode | **DIVERGENT, T₂ = 15 s** | **DIVERGENT, T₂ = 80 s** | convergent, τ = 80 s | unstable below cruise |
+
+Two consequences for the FCS architecture:
+
+1. **Yaw damper required.** Dutch roll at 0.26 ζ is acceptable for a
+   gliding aircraft but right at the threshold of pilot-irritating;
+   handling qualities improve markedly above 0.40. The FCS adds an
+   artificial Cn_r contribution by feeding sensed yaw rate into
+   differential flaperon (right-flaperon-down + left-flaperon-up
+   produces a yaw moment via wing drag asymmetry). Tuning is a
+   placeholder until 6DOF SITL is in place.
+
+2. **Spiral mode autopilot or persistent pilot attention.** At V_bg the
+   spiral doubles in 15 s — pilot can easily fly through this but
+   cannot leave the controls. The FCS should provide bank-hold
+   functionality (close a φ loop with the ailerons) for normal
+   cruise. Loss of this is **major** (Cooper-Harper drift), not
+   hazardous — pilot can still fly.
+
+These are first-cut numbers — Cn_β and Cn_r in particular for a tailless
+wing are sensitive to fuselage / harness / pilot-body shadowing of the
+sweep contribution, which is exactly the kind of effect a vortex-lattice
+code (AVL) captures and our hand-calc does not. Validate with AVL before
+treating as load-bearing.
+
 ## Open issues
 
-1. **Lateral-directional dynamics.** Not yet analyzed. Tailless flying
-   wings have well-known dutch-roll susceptibility; wing dihedral effect
-   ($C_{l\beta}$) and yaw stability ($C_{n\beta}$) need AVL output.
+1. **AVL validation of lateral derivatives.** Cn_β especially — if AVL
+   reports a smaller value than our 0.020 placeholder, dutch-roll damping
+   could drop into Level 3 territory and the yaw damper becomes
+   *mandatory* not *recommended*.
 2. **Servo selection.** Need a waterproof brushless servo with
    ≥ 100 deg/s slew, ≥ 5 N·m holding torque, and < 5 ms control-input
    latency. Vendor survey pending.
