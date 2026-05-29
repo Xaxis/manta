@@ -44,20 +44,55 @@ deploy pull-out peak load = 3.1 g   (within the 3 g limit-load spar sizing)
 Outputs: `out/flight_dynamics.png` (six-panel trace), `out/telemetry.json`
 (per-frame series for the web viewer overlay).
 
-## 2. Deployment animation — `build.py`
+## 2. Full mechanical model + deployment animation — `build.py`
 
-`run_simulation()` runs the deployment **mechanism** kinematics in MuJoCo
-(shoulder/hip yokes spread the spars over Phase A, the wrist + ankle tip booms
-telescope out over Phase B). The geometry is then built as **one mesh with a
-fixed topology that is identical on every frame**; the 60 deployment frames are
-stored as **morph targets (shape keys)**. The result is a single
-`manta.glb` containing a real, continuously-interpolated deployment animation —
-no opacity crossfades, no per-pose static meshes.
+`run_simulation()` integrates the deployment **schedule** in MuJoCo (shoulder/
+hip yokes spread over Phase A; the wrist + ankle tip booms telescope out over
+Phase B). That schedule drives the wing's open fraction.
 
-The web viewer (`site/src/components/viewer/Viewer.tsx`) plays it by scrubbing a
-`THREE.AnimationMixer` clock from the deploy slider, so any fractional deploy
-state is a true blend of the two neighbouring frames.
+The vehicle is built from the **locked planform** (BRIEF #5: `S = 8.4 m²`,
+`b = 7.4 m`, `AR = 6.5`, `25°` LE sweep, taper `0.4`, `5°` washout) as **ONE
+continuous cambered wing surface, tip-to-tip** — so the skin is continuous
+across the body and the region between the legs, exactly like a rigid wing or a
+paraglider canopy. The pilot is the fuselage, embedded under the translucent
+tensioned skin, with arms along the leading-edge spar and legs along the
+trailing-edge spar (BRIEF #2). Every BRIEF component is modelled as a named
+material slot:
 
-Why morph targets instead of an armature: identical-topology morphing
-sidesteps all skin-weight / bone-roll bookkeeping and guarantees the exact
-intended geometry on every frame, which is what makes the scrub exact.
+| slot | parts |
+|---|---|
+| `suit` | pilot / harness garment body |
+| `cfrp` | spine yoke (box beam), shoulder + hip pivot hubs, LE spar, TE spar, 3-stage telescoping tip booms |
+| `skin` | cambered NACA-4412 wing (camber + thickness + washout + billow scallop between ribs) |
+| `rib`  | 9 bistable airfoil-profile ribs per side |
+| `reserve` | reserve container on the back, above the spine yoke |
+| `fcs`  | flight-control bay on the spine |
+| `flaperon` | trailing-edge flaperons (deflect down on deploy) |
+| `metal` | CO₂ canisters + tip-hub fittings |
+
+The deployable geometry is **one mesh with a fixed topology that is identical on
+every frame**; the 60 frames are stored as **morph targets (shape keys)** — a
+single `manta.glb` with a real, continuously-interpolated deployment animation
+(no opacity crossfades, no per-pose static meshes). Identical-topology morphing
+sidesteps skin-weight / bone-roll bookkeeping and guarantees the exact geometry
+on every frame, which is what makes the web scrub exact.
+
+## 3. Aero field — surface pressure + streamlines
+
+`build_pressure_object()` and `build_flow_object()` bake an **illustrative**
+aerodynamic field onto the deployed wing as two *separate static* GLB objects
+(`PRESSURE`, `FLOW`) so they never contaminate the morph mesh's materials:
+
+* **Pressure colormap** — surface Cp on the wing (suction-blue over the leading
+  edge, recovering aft), via a thin-airfoil `cp_at()` model **scaled by the real
+  Weissinger span-loading** (`analysis/aero/weissinger/out/span_loading.csv` at
+  the glide α≈6°).
+* **Streamlines** — upwash ahead of the LE → acceleration over the suction peak
+  → downwash behind the TE; coloured by local speed `√(1−Cp)`.
+
+This is an **intuition field for the web viewer, NOT a CFD solution** — SU2 /
+OpenFOAM is the rigorous follow-up per the BRIEF tool stack. The viewer labels
+it as such. The web viewer (`site/src/components/viewer/Viewer.tsx`) plays the
+deployment by scrubbing a `THREE.AnimationMixer` clock from the deploy slider,
+and its **Flow field** toggle reveals `PRESSURE` + animated `FLOW` streamlines
+(a small shader scrolls pulses along each line) over the fully-deployed wing.
