@@ -62,6 +62,9 @@ from pathlib import Path
 
 import numpy as np
 
+# np.trapz was renamed to np.trapezoid in NumPy 2.0; support both.
+_trapz = getattr(np, "trapezoid", None) or np.trapz
+
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT))
 
@@ -169,7 +172,7 @@ def cantilever_bending_moment(y_half: np.ndarray, q_half: np.ndarray) -> np.ndar
         eta = y_half[i:]
         q_eta = q_half[i:]
         if len(eta) >= 2:
-            M[i] = np.trapezoid((eta - y_half[i]) * q_eta, eta)
+            M[i] = _trapz((eta - y_half[i]) * q_eta, eta)
     return M
 
 

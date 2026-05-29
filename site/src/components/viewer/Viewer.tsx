@@ -1,116 +1,151 @@
-import { Suspense, useEffect, useState } from "react";
-import { Canvas, useLoader } from "@react-three/fiber";
-import { OrbitControls, Html } from "@react-three/drei";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame, useLoader } from "@react-three/fiber";
+import { OrbitControls, Html, ContactShadows, Environment } from "@react-three/drei";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 // ---------------------------------------------------------------
-// MANTA viewer — loads GLB scenes baked from MuJoCo + Blender.
-// Three poses: stowed (deploy=0), mid-deploy (~0.5), deployed (1.0).
-// Slider crossfades between adjacent poses.
+// MANTA viewer — plays the single animated GLB baked from MuJoCo
+// kinematics.  The deployment is REAL morph-target animation (60
+// frames); the slider scrubs the AnimationMixer's clock, so there
+// is no opacity crossfade / ghosting.  A telemetry strip mirrors
+// the verified flight-dynamics physics.
 // ---------------------------------------------------------------
 
-type Pose = "stowed" | "mid_deploy" | "deployed";
-const POSE_URLS: Record<Pose, string> = {
-  stowed: "/models/v3/stowed.glb",
-  mid_deploy: "/models/v3/mid_deploy.glb",
-  deployed: "/models/v3/deployed.glb",
+const MODEL_URL = "/models/v3/manta.glb";
+const TELEMETRY_URL = "/models/v3/telemetry.json";
+
+type Telemetry = {
+  deploy_start: number;
+  deploy_dur: number;
+  settle: {
+    V_glide: number;
+    glide_ratio: number;
+    alpha_glide_deg: number;
+    sink_rate: number;
+    peak_load: number;
+  };
+  target: {
+    V_best_glide: number;
+    L_over_D_max: number;
+    V_stall: number;
+    V_terminal_stowed: number;
+  };
+  series: {
+    deploy: number[];
+    V: number[];
+    gamma_deg: number[];
+    alpha_deg: number[];
+    n_load: number[];
+    glide_ratio: number[];
+  };
 };
 
-function GltfScene({
-  pose,
-  visible,
-  opacity,
-}: {
-  pose: Pose;
-  visible: boolean;
-  opacity: number;
-}) {
-  const gltf = useLoader(GLTFLoader, POSE_URLS[pose]);
-  // Apply the opacity to all materials in the scene
+function MantaModel({ deployRef }: { deployRef: React.MutableRefObject<number> }) {
+  const gltf = useLoader(GLTFLoader, MODEL_URL);
+
+  const { mixer, duration } = useMemo(() => {
+    const mx = new THREE.AnimationMixer(gltf.scene);
+    const clip = gltf.animations[0];
+    if (clip) {
+      const action = mx.clipAction(clip);
+      action.play();
+    }
+    return { mixer: mx, duration: clip ? clip.duration : 1 };
+  }, [gltf]);
+
+  // Scrub the animation clock from the slider — continuous deployment.
+  useFrame(() => {
+    const t = THREE.MathUtils.clamp(deployRef.current, 0, 1) * duration;
+    mixer.setTime(t);
+  });
+
   useEffect(() => {
-    gltf.scene.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        const mesh = child as THREE.Mesh;
-        const mat = mesh.material as THREE.MeshStandardMaterial;
-        if (mat) {
-          mat.transparent = opacity < 1.0;
-          mat.opacity = opacity;
-          mat.depthWrite = opacity > 0.95;
-        }
+    gltf.scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh) {
+        mesh.castShadow = true;
+        mesh.frustumCulled = false;
       }
     });
-  }, [gltf, opacity]);
-  if (!visible) return null;
-  return <primitive object={gltf.scene.clone()} />;
+  }, [gltf]);
+
+  return <primitive object={gltf.scene} />;
 }
 
-function Scene({ deployState }: { deployState: number }) {
-  // Crossfade across three poses:
-  //   0.00 - 0.40   stowed → mid_deploy
-  //   0.40 - 1.00   mid_deploy → deployed
-  let stowedAlpha = 0.0;
-  let midAlpha = 0.0;
-  let deployedAlpha = 0.0;
-
-  if (deployState <= 0.40) {
-    const t = deployState / 0.40;
-    stowedAlpha = 1 - t;
-    midAlpha = t;
-  } else {
-    const t = (deployState - 0.40) / 0.60;
-    midAlpha = 1 - t;
-    deployedAlpha = t;
-  }
-
+function Scene({ deployRef }: { deployRef: React.MutableRefObject<number> }) {
   return (
     <>
-      <hemisphereLight args={["#fff8e6", "#1a2138", 0.65]} />
+      <hemisphereLight args={["#dfe9ff", "#10131c", 0.55]} />
       <directionalLight
-        position={[3, -5, 6]}
-        intensity={2.0}
+        position={[5, 8, 4]}
+        intensity={2.4}
         castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-near={0.5}
+        shadow-camera-far={30}
+        shadow-camera-left={-6}
+        shadow-camera-right={6}
+        shadow-camera-top={6}
+        shadow-camera-bottom={-6}
       />
-      <directionalLight position={[-3, 4, 4]} intensity={0.5} />
+      <directionalLight position={[-4, 3, -5]} intensity={0.45} color="#9fb8ff" />
 
       <Suspense
         fallback={
           <Html center>
-            <div className="text-zinc-300 text-sm">Loading scene…</div>
+            <div className="text-zinc-300 text-sm">Loading model…</div>
           </Html>
         }
       >
-        {stowedAlpha > 0.01 && (
-          <GltfScene pose="stowed" visible={true} opacity={stowedAlpha} />
-        )}
-        {midAlpha > 0.01 && (
-          <GltfScene pose="mid_deploy" visible={true} opacity={midAlpha} />
-        )}
-        {deployedAlpha > 0.01 && (
-          <GltfScene pose="deployed" visible={true} opacity={deployedAlpha} />
-        )}
+        <MantaModel deployRef={deployRef} />
+        <Environment preset="city" />
       </Suspense>
 
-      <gridHelper
-        args={[10, 20, "#1a3a8e", "#222"]}
-        position={[0, -0.5, 0]}
+      <ContactShadows
+        position={[0, -1.05, 0]}
+        opacity={0.45}
+        scale={14}
+        blur={2.4}
+        far={4}
+        color="#000010"
       />
+      <gridHelper args={[14, 28, "#1a3a8e", "#1d2230"]} position={[0, -1.05, 0]} />
     </>
   );
 }
 
-type ViewerProps = {
-  height?: number;
-};
+const PLAY_DURATION_MS = 2600;
 
-const PLAY_DURATION_MS = 2200;
+// Eased deploy schedule: slow Phase-A spread, then a fast Phase-B tip snap.
+function easeDeploy(t: number): number {
+  if (t < 0.55) {
+    // Phase A — smooth arm/leg spread over 0..0.4 deploy
+    const tt = t / 0.55;
+    return (tt * tt * (3 - 2 * tt)) * 0.45;
+  }
+  // Phase B — sharp tip-extension snap from 0.45 -> 1.0
+  const tt = (t - 0.55) / 0.45;
+  return 0.45 + tt * tt * (3 - 2 * tt) * 0.55;
+}
 
-export default function Viewer({ height = 620 }: ViewerProps) {
+export default function Viewer({ height = 620 }: { height?: number }) {
   const [deployState, setDeployState] = useState(1.0);
   const [playing, setPlaying] = useState(false);
-  const [autoRotate, setAutoRotate] = useState(false);
+  const [autoRotate, setAutoRotate] = useState(true);
+  const [telem, setTelem] = useState<Telemetry | null>(null);
+  const deployRef = useRef(1.0);
+
+  // keep the ref in sync so useFrame reads the latest without re-mounting
+  deployRef.current = deployState;
+
+  useEffect(() => {
+    fetch(TELEMETRY_URL)
+      .then((r) => r.json())
+      .then(setTelem)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!playing) return;
@@ -123,20 +158,7 @@ export default function Viewer({ height = 620 }: ViewerProps) {
         setDeployState(1);
         setPlaying(false);
       } else {
-        // Eased: a slow lead-in (Phase A spread) then a fast pulse (Phase B
-        // tip-extension fire) then settle.
-        let eased: number;
-        if (t < 0.5) {
-          // Phase A: smooth spread over 0..0.5 of the play duration
-          eased = (t / 0.5) * 0.4;
-        } else {
-          // Phase B: sharp ramp from 0.4 → 1.0 over 0.5..0.7 of play duration
-          // then hold settle to 1.0
-          const tt = (t - 0.5) / 0.5;
-          const sharp = tt * tt * (3 - 2 * tt);
-          eased = 0.4 + sharp * 0.6;
-        }
-        setDeployState(eased);
+        setDeployState(easeDeploy(t));
         raf = requestAnimationFrame(tick);
       }
     };
@@ -145,36 +167,66 @@ export default function Viewer({ height = 620 }: ViewerProps) {
   }, [playing]);
 
   const phaseLabel = (() => {
-    if (deployState < 0.05) return "STOWED — wingsuit-tucked posture";
-    if (deployState < 0.42) return "Phase A — arms + legs spreading";
-    if (deployState < 0.95) return "Phase B — CO₂ fires; tip extensions snap out";
-    return "DEPLOYED — wing tensioned, glide";
+    if (deployState < 0.04) return "STOWED — wingsuit-tucked freefall posture";
+    if (deployState < 0.46) return "PHASE A — pneumatic yokes spread arms + legs, lock spars";
+    if (deployState < 0.96) return "PHASE B — CO₂ fires; wrist + ankle tip booms telescope out";
+    return "DEPLOYED — skin tensioned · FCS captures best-glide trim";
   })();
+
+  // Live telemetry sampled at the current deployment progress.
+  const live = useMemo(() => {
+    if (!telem) return null;
+    const d = telem.series.deploy;
+    // find the deploy ramp window and map deployState onto it
+    let idx = 0;
+    for (let i = 0; i < d.length; i++) {
+      if (d[i] <= deployState) idx = i;
+      else break;
+    }
+    // before deploy completes show the deploy-window sample; once fully
+    // deployed, show the settled-glide values
+    if (deployState >= 0.99) {
+      return {
+        V: telem.settle.V_glide,
+        gamma: -Math.atan2(1, telem.settle.glide_ratio) * (180 / Math.PI),
+        n: 1.0,
+        ld: telem.settle.glide_ratio,
+      };
+    }
+    return {
+      V: telem.series.V[idx],
+      gamma: telem.series.gamma_deg[idx],
+      n: telem.series.n_load[idx],
+      ld: telem.series.glide_ratio[idx],
+    };
+  }, [telem, deployState]);
+
+  const btn =
+    "rounded-md bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 transition";
 
   return (
     <div className="relative w-full" style={{ height }}>
       <Canvas
         shadows
-        camera={{ position: [3.0, 1.6, 3.8], fov: 32, near: 0.05, far: 60 }}
+        dpr={[1, 2]}
+        camera={{ position: [4.2, 2.4, 5.2], fov: 34, near: 0.05, far: 80 }}
         onCreated={({ scene }) => {
-          // GLB files use Blender's z-up world. Three.js default is y-up.
-          // Rotate the scene root so vehicle z aligns with viewport up.
-          scene.rotation.x = -Math.PI / 2;
-          scene.background = new THREE.Color("#0a0a0c");
+          scene.background = new THREE.Color("#070809");
         }}
       >
-        <Scene deployState={deployState} />
+        <Scene deployRef={deployRef} />
         <OrbitControls
           enableDamping
           dampingFactor={0.06}
           autoRotate={autoRotate}
-          autoRotateSpeed={0.45}
-          minDistance={1.5}
-          maxDistance={20}
+          autoRotateSpeed={0.5}
+          minDistance={2.0}
+          maxDistance={24}
           target={[0, 0, 0]}
         />
       </Canvas>
 
+      {/* controls */}
       <div className="absolute top-3 right-3 flex flex-col gap-2 max-w-[220px]">
         <button
           onClick={() => setPlaying(true)}
@@ -183,39 +235,41 @@ export default function Viewer({ height = 620 }: ViewerProps) {
         >
           {playing ? "Deploying…" : "▶ Play deployment"}
         </button>
-        <button
-          onClick={() => {
-            setPlaying(false);
-            setDeployState(0);
-          }}
-          className="rounded-md bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 transition"
-        >
+        <button onClick={() => { setPlaying(false); setDeployState(0); }} className={btn}>
           ⤴ Stowed (0%)
         </button>
-        <button
-          onClick={() => {
-            setPlaying(false);
-            setDeployState(1);
-          }}
-          className="rounded-md bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 transition"
-        >
+        <button onClick={() => { setPlaying(false); setDeployState(1); }} className={btn}>
           ⤵ Deployed (100%)
         </button>
-        <button
-          onClick={() => setAutoRotate((v) => !v)}
-          className="rounded-md bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 transition"
-        >
+        <button onClick={() => setAutoRotate((v) => !v)} className={btn}>
           {autoRotate ? "Stop orbit" : "Auto-orbit"}
         </button>
       </div>
 
+      {/* telemetry strip (verified flight-dynamics physics) */}
+      {live && (
+        <div className="absolute top-3 left-3 flex flex-col gap-1.5 bg-zinc-950/70 border border-zinc-800 rounded-md px-3 py-2 text-[11px] backdrop-blur-sm">
+          <div className="text-zinc-500 uppercase tracking-wider text-[10px]">
+            flight physics · live
+          </div>
+          <Telem label="airspeed" value={`${live.V.toFixed(1)} m/s`} />
+          <Telem label="flight path γ" value={`${live.gamma.toFixed(1)}°`} />
+          <Telem label="load factor" value={`${live.n.toFixed(2)} g`} />
+          <Telem
+            label="glide ratio"
+            value={live.ld > 0 && live.ld < 40 ? `${live.ld.toFixed(1)} : 1` : "—"}
+          />
+        </div>
+      )}
+
+      {/* deploy scrubber */}
       <div className="absolute bottom-3 left-3 right-3 flex items-center gap-3 bg-zinc-900/85 border border-zinc-800 px-3 py-2 rounded-md text-xs">
         <span className="text-zinc-500 whitespace-nowrap">deploy</span>
         <input
           type="range"
           min={0}
           max={1}
-          step={0.01}
+          step={0.005}
           value={deployState}
           onChange={(e) => {
             setDeployState(parseFloat(e.target.value));
@@ -231,9 +285,19 @@ export default function Viewer({ height = 620 }: ViewerProps) {
           {phaseLabel}
         </span>
       </div>
-      <div className="absolute top-3 left-3 text-[11px] text-zinc-500 max-w-[300px]">
-        physics-baked from MuJoCo · drag orbit · scroll zoom
+
+      <div className="absolute bottom-[3.4rem] left-3 text-[10px] text-zinc-600">
+        morph-target animation · baked from MuJoCo · drag orbit · scroll zoom
       </div>
+    </div>
+  );
+}
+
+function Telem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-zinc-500">{label}</span>
+      <span className="mono text-zinc-200 tabular-nums">{value}</span>
     </div>
   );
 }

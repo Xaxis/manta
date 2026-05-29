@@ -1,18 +1,23 @@
 """
-MANTA — full pipeline in one script.
+MANTA — deployment pipeline: MuJoCo kinematics -> animated GLB + renders.
 
-(1) MuJoCo MJCF model of the deployment kinematics + forward sim
-(2) Blender scene:
-      - Humanoid via Skin + Subsurf modifier on a vertex skeleton
-        (smooth organic shape, not capsules)
-      - Airfoil-lofted wing skin with NACA-style cross-section
-      - Procedural sky world + ground plane with shadow
-      - PBR materials (carbon fiber, fabric, skin)
-      - Cinematic camera with f/4 depth of field
-(3) Render keyframes via Eevee at 1920x1080
-(4) Export GLB for the web viewer
+Two physics layers feed this build:
 
-Run:  .venv/bin/python sim/build.py
+  * sim/flight_dynamics.py  — the rigorous 6-state freefall->deploy->glide
+    trajectory (airspeed, load factor, glide ratio).  Verified against the
+    BRIEF targets.  Produces telemetry.json for the viewer overlay.
+
+  * this file's run_simulation() — the MuJoCo *mechanism* kinematics: how the
+    spars, arms, legs and telescoping tips move through the 0.6 s deployment.
+    These joint trajectories drive the geometry.
+
+The geometry is built as ONE mesh with a FIXED topology that is identical on
+every frame; the 60 deployment frames are stored as morph targets (shape
+keys).  That gives a single GLB with a real, continuously-interpolated
+deployment animation — no opacity crossfades, no per-pose static meshes — that
+three.js plays directly via morphTargetInfluences.
+
+Run:  PYTHONPATH=. .venv/bin/python sim/build.py
 """
 
 from __future__ import annotations
@@ -23,16 +28,16 @@ import sys
 from pathlib import Path
 
 import bpy
-import bmesh
 import mujoco
 
 _HERE = Path(__file__).parent
 OUT_DIR = _HERE / "out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+SITE_MODELS = _HERE.parent / "site" / "public" / "models" / "v3"
 
 
 # =============================================================================
-# (1) MuJoCo physics — embedded MJCF + sim run
+# (1) MuJoCo deployment mechanism — embedded MJCF + kinematic run
 # =============================================================================
 
 MJCF_XML = """\
@@ -180,7 +185,6 @@ MJCF_XML = """\
 </mujoco>
 """
 
-
 JOINT_STOWED = {
     "sh_R_yaw": 0.00, "sh_L_yaw": 0.00,
     "sh_R_pitch": -1.40, "sh_L_pitch": -1.40,
@@ -194,6 +198,9 @@ JOINT_DEPLOYED = {
     "hip_R_yaw": -0.44, "hip_L_yaw": +0.44,
 }
 
+N_FRAMES = 60
+DURATION_S = 0.6
+
 
 def smoothstep(t: float) -> float:
     t = max(0.0, min(1.0, t))
@@ -205,7 +212,7 @@ def lerp(a, b, t):
 
 
 def run_simulation() -> dict:
-    """Run the deployment forward in MuJoCo. Return trajectory dict."""
+    """Run the deployment mechanism forward in MuJoCo; return trajectory."""
     model = mujoco.MjModel.from_xml_string(MJCF_XML)
     data = mujoco.MjData(model)
 
@@ -215,16 +222,13 @@ def run_simulation() -> dict:
             data.qpos[model.jnt_qposadr[jid]] = q
     mujoco.mj_forward(model, data)
 
-    actuator_id = {}
-    for i in range(model.nu):
-        actuator_id[mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i)] = i
-
+    actuator_id = {mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i): i
+                   for i in range(model.nu)}
     body_ids = {mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i): i
-                 for i in range(model.nbody)}
+                for i in range(model.nbody)}
 
-    duration_s = 0.6
-    n_steps = int(duration_s / model.opt.timestep)
-    record_every = max(1, n_steps // 60)
+    n_steps = int(DURATION_S / model.opt.timestep)
+    record_every = max(1, n_steps // N_FRAMES)
     frames = []
 
     for step in range(n_steps):
@@ -251,21 +255,260 @@ def run_simulation() -> dict:
 
         mujoco.mj_step(model, data)
 
-        if step % record_every == 0:
+        if step % record_every == 0 and len(frames) < N_FRAMES:
             frame = {"t": float(t), "bodies": {}}
             for name, bid in body_ids.items():
-                frame["bodies"][name] = {
-                    "pos": data.xpos[bid].tolist(),
-                    "quat": data.xquat[bid].tolist(),
-                }
+                frame["bodies"][name] = {"pos": data.xpos[bid].tolist()}
             frames.append(frame)
 
-    print(f"  sim: {len(frames)} frames over {duration_s} s")
-    return {"duration_s": duration_s, "frames": frames}
+    # ensure exactly N_FRAMES (pad with last)
+    while len(frames) < N_FRAMES:
+        frames.append(frames[-1])
+    print(f"  sim: {len(frames)} frames over {DURATION_S} s")
+    return {"duration_s": DURATION_S, "frames": frames}
 
 
 # =============================================================================
-# (2) Blender scene
+# (2) Fixed-topology procedural geometry
+# =============================================================================
+#
+# Everything below APPENDS into a shared vertex list and a shared face list.
+# The face list (topology) is built ONCE from frame 0 and reused; only vertex
+# *positions* change frame to frame.  Vertex counts are constant regardless of
+# geometry (segments may collapse to zero length when stowed — that is fine,
+# the vertices just coincide), which is exactly what morph targets require.
+
+V = list      # type alias for clarity: a list of (x,y,z)
+
+RING_SEG = 12          # radial segments per tube cross-section
+SPHERE_RINGS = 6
+SPHERE_SEG = 10
+
+
+def _frame_axes(p0, p1):
+    """Orthonormal frame with x along (p1-p0); robust to vertical axes."""
+    ax = (p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2])
+    L = math.sqrt(sum(c * c for c in ax)) or 1e-9
+    ax = (ax[0] / L, ax[1] / L, ax[2] / L)
+    up = (0.0, 0.0, 1.0)
+    if abs(ax[2]) > 0.95:
+        up = (1.0, 0.0, 0.0)
+    # n1 = ax x up
+    n1 = (ax[1] * up[2] - ax[2] * up[1],
+          ax[2] * up[0] - ax[0] * up[2],
+          ax[0] * up[1] - ax[1] * up[0])
+    Ln = math.sqrt(sum(c * c for c in n1)) or 1e-9
+    n1 = (n1[0] / Ln, n1[1] / Ln, n1[2] / Ln)
+    # n2 = ax x n1
+    n2 = (ax[1] * n1[2] - ax[2] * n1[1],
+          ax[2] * n1[0] - ax[0] * n1[2],
+          ax[0] * n1[1] - ax[1] * n1[0])
+    return ax, n1, n2, L
+
+
+class MeshAccumulator:
+    """Builds one frame's vertices; topology captured on first frame."""
+
+    def __init__(self):
+        self.verts: list = []
+
+    def _ring(self, center, n1, n2, r):
+        base = len(self.verts)
+        for k in range(RING_SEG):
+            a = 2 * math.pi * k / RING_SEG
+            c, s = math.cos(a), math.sin(a)
+            self.verts.append((center[0] + r * (c * n1[0] + s * n2[0]),
+                               center[1] + r * (c * n1[1] + s * n2[1]),
+                               center[2] + r * (c * n1[2] + s * n2[2])))
+        return base
+
+    def tube(self, p0, p1, r0, r1, faces=None):
+        """Two-ring tapered tube with end caps. RING_SEG segs each.
+        Returns list of quad/tri faces only when `faces` list is given (frame 0)."""
+        ax, n1, n2, _ = _frame_axes(p0, p1)
+        b0 = self._ring(p0, n1, n2, r0)
+        b1 = self._ring(p1, n1, n2, r1)
+        c0 = len(self.verts); self.verts.append(tuple(p0))
+        c1 = len(self.verts); self.verts.append(tuple(p1))
+        if faces is not None:
+            for k in range(RING_SEG):
+                kn = (k + 1) % RING_SEG
+                faces.append((b0 + k, b0 + kn, b1 + kn, b1 + k))
+                faces.append((c0, b0 + kn, b0 + k))
+                faces.append((c1, b1 + k, b1 + kn))
+
+    def sphere(self, center, r, faces=None):
+        base = len(self.verts)
+        for i in range(SPHERE_RINGS + 1):
+            phi = math.pi * i / SPHERE_RINGS
+            z = math.cos(phi); rr = math.sin(phi)
+            for j in range(SPHERE_SEG):
+                th = 2 * math.pi * j / SPHERE_SEG
+                self.verts.append((center[0] + r * rr * math.cos(th),
+                                   center[1] + r * rr * math.sin(th),
+                                   center[2] + r * z))
+        if faces is not None:
+            for i in range(SPHERE_RINGS):
+                for j in range(SPHERE_SEG):
+                    jn = (j + 1) % SPHERE_SEG
+                    a = base + i * SPHERE_SEG + j
+                    b = base + i * SPHERE_SEG + jn
+                    c = base + (i + 1) * SPHERE_SEG + jn
+                    d = base + (i + 1) * SPHERE_SEG + j
+                    faces.append((a, b, c, d))
+
+    def membrane(self, le_pts, te_pts, n_span, faces=None):
+        """Lofted grid between two boundary polylines (LE and TE).
+        Sampled at matching normalized arc-length; chordwise resolution 2
+        (LE edge + TE edge).  n_span spanwise stations."""
+        def resample(poly, n):
+            # cumulative arc length
+            segs = [0.0]
+            for i in range(1, len(poly)):
+                d = math.dist(poly[i], poly[i - 1])
+                segs.append(segs[-1] + d)
+            total = segs[-1] or 1e-9
+            out = []
+            for s in range(n):
+                target = total * s / (n - 1)
+                # find segment
+                k = 0
+                while k < len(segs) - 2 and segs[k + 1] < target:
+                    k += 1
+                seg_len = (segs[k + 1] - segs[k]) or 1e-9
+                f = (target - segs[k]) / seg_len
+                p = tuple(lerp(poly[k][d], poly[k + 1][d], f) for d in range(3))
+                out.append(p)
+            return out
+
+        le = resample(le_pts, n_span)
+        te = resample(te_pts, n_span)
+        base = len(self.verts)
+        for i in range(n_span):
+            self.verts.append(le[i])
+            self.verts.append(te[i])
+        if faces is not None:
+            for i in range(n_span - 1):
+                a = base + 2 * i        # le i
+                b = base + 2 * i + 1    # te i
+                c = base + 2 * (i + 1) + 1   # te i+1
+                d = base + 2 * (i + 1)       # le i+1
+                faces.append((a, d, c, b))
+
+
+# Geometry layout: order of operations is identical every frame, so the
+# topology (face list) captured on frame 0 stays valid for all frames.
+# Material slots: 0=suit/skin, 1=cfrp spar, 2=fabric membrane.
+
+def build_frame(positions: dict, faces=None, mat_ranges=None):
+    """Assemble one frame's mesh. On frame 0 pass `faces`/`mat_ranges` lists
+    to capture topology + per-slot face index ranges."""
+    m = MeshAccumulator()
+
+    def g(name):
+        return positions.get(name)
+
+    sh_R, sh_L = g("shoulder_R"), g("shoulder_L")
+    el_R, el_L = g("elbow_R"), g("elbow_L")
+    wr_R, wr_L = g("wrist_R"), g("wrist_L")
+    hip_R, hip_L = g("hip_R"), g("hip_L")
+    kn_R, kn_L = g("knee_R"), g("knee_L")
+    ank_R, ank_L = g("ankle_R"), g("ankle_L")
+
+    torso_up = tuple((sh_R[i] + sh_L[i]) / 2 for i in range(3))
+    hip_mid = tuple((hip_R[i] + hip_L[i]) / 2 for i in range(3))
+    torso_lo = tuple(lerp(torso_up[i], hip_mid[i], 0.55) for i in range(3))
+    neck = (torso_up[0] + 0.16, 0.0, torso_up[2] + 0.06)
+    head = (torso_up[0] + 0.34, 0.0, torso_up[2] + 0.10)
+
+    def extend(a, b, length):
+        d = [b[i] - a[i] for i in range(3)]
+        L = math.sqrt(sum(c * c for c in d)) or 1e-9
+        return tuple(b[i] + d[i] / L * length for i in range(3))
+
+    hand_R = extend(el_R, wr_R, 0.18)
+    hand_L = extend(el_L, wr_L, 0.18)
+
+    f0 = faces is not None
+
+    # ---- HUMANOID (material slot 0) ----
+    start = len(faces) if f0 else 0
+    # torso
+    m.tube(hip_mid, torso_lo, 0.150, 0.160, faces)
+    m.tube(torso_lo, torso_up, 0.160, 0.150, faces)
+    m.tube(torso_up, neck, 0.140, 0.075, faces)
+    m.sphere(head, 0.115, faces)
+    # arms
+    for sh, el, wr, hand in [(sh_R, el_R, wr_R, hand_R), (sh_L, el_L, wr_L, hand_L)]:
+        m.sphere(sh, 0.090, faces)
+        m.tube(sh, el, 0.075, 0.058, faces)
+        m.sphere(el, 0.060, faces)
+        m.tube(el, wr, 0.056, 0.044, faces)
+        m.tube(wr, hand, 0.044, 0.034, faces)
+    # legs
+    for hip, kn, ank in [(hip_R, kn_R, ank_R), (hip_L, kn_L, ank_L)]:
+        m.sphere(hip, 0.110, faces)
+        m.tube(hip, kn, 0.105, 0.072, faces)
+        m.sphere(kn, 0.072, faces)
+        m.tube(kn, ank, 0.070, 0.050, faces)
+        m.sphere(ank, 0.052, faces)
+    if f0:
+        mat_ranges["suit"] = (start, len(faces))
+
+    # Telescoping tip extensions.  The MuJoCo slide joints sit in the rotated
+    # wrist/ankle frames, so their world direction tilts as the limbs spread.
+    # For a clean planform we use only the *magnitude* of each stage's travel
+    # (a translation, so frame-invariant) and lay the boom out horizontally
+    # outboard (+/- y).  Wrist boom forms the leading edge, ankle boom the
+    # trailing edge; both reach the same span so the wing closes to a tip chord.
+    def boom_stations(anchor, sgn, reach, n=3):
+        return [(anchor[0], anchor[1] + sgn * reach * (k + 1) / n, anchor[2])
+                for k in range(n)]
+
+    le_booms, te_booms = {}, {}
+    for side, wr, ank in [("R", wr_R, ank_R), ("L", wr_L, ank_L)]:
+        sgn = 1.0 if side == "R" else -1.0
+        t3 = g(f"tip3_{side}")
+        le_reach = math.dist(t3, wr)                 # cumulative LE boom travel
+        te_reach = le_reach * (1.20 / 1.10)          # TE boom ranges a touch further
+        le_booms[side] = boom_stations(wr, sgn, le_reach)
+        te_booms[side] = boom_stations(ank, sgn, te_reach)
+
+    # ---- CFRP STRUCTURE (material slot 1) ----
+    start = len(faces) if f0 else 0
+    shoulder_yoke = tuple((sh_R[i] + sh_L[i]) / 2 + (0, 0, 0.12)[i] for i in range(3))
+    hip_yoke = tuple((hip_R[i] + hip_L[i]) / 2 + (0, 0, 0.10)[i] for i in range(3))
+    m.tube(shoulder_yoke, hip_yoke, 0.024, 0.024, faces)   # spine yoke
+    for side, wr, ank in [("R", wr_R, ank_R), ("L", wr_L, ank_L)]:
+        l1, l2, l3 = le_booms[side]
+        m.tube(wr, l1, 0.022, 0.019, faces)            # wrist tip extension (LE)
+        m.tube(l1, l2, 0.019, 0.015, faces)
+        m.tube(l2, l3, 0.015, 0.011, faces)
+        a1, a2, a3 = te_booms[side]
+        m.tube(ank, a1, 0.020, 0.017, faces)           # ankle tip extension (TE)
+        m.tube(a1, a2, 0.017, 0.014, faces)
+        m.tube(a2, a3, 0.014, 0.011, faces)
+    if f0:
+        mat_ranges["cfrp"] = (start, len(faces))
+
+    # ---- WING MEMBRANE (material slot 2) ----
+    start = len(faces) if f0 else 0
+    for side, wr, ank in [("R", wr_R, ank_R), ("L", wr_L, ank_L)]:
+        sh = g(f"shoulder_{side}"); el = g(f"elbow_{side}")
+        hip = g(f"hip_{side}"); kn = g(f"knee_{side}")
+        l1, l2, l3 = le_booms[side]
+        a1, a2, a3 = te_booms[side]
+        le = [sh, el, wr, l1, l2, l3]               # leading edge: arm + wrist boom
+        te = [hip, kn, ank, a1, a2, a3]             # trailing edge: leg + ankle boom
+        m.membrane(le, te, n_span=16, faces=faces)
+    if f0:
+        mat_ranges["fabric"] = (start, len(faces))
+
+    return m.verts
+
+
+# =============================================================================
+# (3) Blender scene, materials, lights, render
 # =============================================================================
 
 def clear_scene():
@@ -276,17 +519,13 @@ def clear_scene():
             d.remove(item)
 
 
-def make_material(name, color, metallic=0.0, roughness=0.5, alpha=1.0,
-                   subsurface=0.0):
+def make_material(name, color, metallic=0.0, roughness=0.5, alpha=1.0):
     mat = bpy.data.materials.new(name=name)
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes["Principled BSDF"]
     bsdf.inputs["Base Color"].default_value = (*color, alpha)
     bsdf.inputs["Metallic"].default_value = metallic
     bsdf.inputs["Roughness"].default_value = roughness
-    if "Subsurface Weight" in bsdf.inputs:
-        bsdf.inputs["Subsurface Weight"].default_value = subsurface
-        bsdf.inputs["Subsurface Radius"].default_value = (0.1, 0.05, 0.025)
     if alpha < 1.0:
         bsdf.inputs["Alpha"].default_value = alpha
         mat.blend_method = "BLEND"
@@ -294,21 +533,19 @@ def make_material(name, color, metallic=0.0, roughness=0.5, alpha=1.0,
 
 
 def build_world():
-    """Procedural sky + soft fill via World shader."""
     world = bpy.data.worlds.new("World")
     world.use_nodes = True
     nt = world.node_tree
     nt.nodes.clear()
-    # Sky background gradient (zenith deep blue → horizon warm gray)
     out = nt.nodes.new("ShaderNodeOutputWorld")
     bg = nt.nodes.new("ShaderNodeBackground")
     grad = nt.nodes.new("ShaderNodeTexGradient")
     grad.gradient_type = "QUADRATIC_SPHERE"
     ramp = nt.nodes.new("ShaderNodeValToRGB")
     ramp.color_ramp.elements[0].position = 0.0
-    ramp.color_ramp.elements[0].color = (0.04, 0.05, 0.08, 1)
+    ramp.color_ramp.elements[0].color = (0.04, 0.06, 0.12, 1)
     ramp.color_ramp.elements[1].position = 1.0
-    ramp.color_ramp.elements[1].color = (0.55, 0.55, 0.50, 1)
+    ramp.color_ramp.elements[1].color = (0.55, 0.60, 0.66, 1)
     geo = nt.nodes.new("ShaderNodeTexCoord")
     map_ = nt.nodes.new("ShaderNodeMapping")
     nt.links.new(geo.outputs["Generated"], map_.inputs["Vector"])
@@ -323,37 +560,22 @@ def build_world():
 def add_lights():
     bpy.ops.object.light_add(type="SUN", location=(8, -8, 12))
     sun = bpy.context.active_object
-    sun.data.energy = 5.0
-    sun.rotation_euler = (math.radians(45), 0, math.radians(-40))
+    sun.data.energy = 4.0
+    sun.rotation_euler = (math.radians(48), 0, math.radians(-40))
     if hasattr(sun.data, "angle"):
-        sun.data.angle = math.radians(3)   # soft sun for nicer shadows
-
+        sun.data.angle = math.radians(2.5)
     bpy.ops.object.light_add(type="AREA", location=(-4, 5, 5))
     fill = bpy.context.active_object
-    fill.data.energy = 600
-    fill.data.size = 6
-
-
-def add_ground():
-    bpy.ops.mesh.primitive_plane_add(size=40, location=(0, 0, -0.55))
-    plane = bpy.context.active_object
-    plane.name = "ground"
-    mat = make_material("ground", (0.10, 0.10, 0.12), metallic=0.0, roughness=0.8)
-    plane.data.materials.append(mat)
+    fill.data.energy = 500
+    fill.data.size = 7
 
 
 def add_camera():
-    bpy.ops.object.camera_add(location=(3.6, -4.4, 2.5))
+    bpy.ops.object.camera_add(location=(3.4, -4.6, 2.2))
     cam = bpy.context.active_object
-    cam.data.lens = 50
-    if hasattr(cam.data.dof, "use_dof"):
-        cam.data.dof.use_dof = True
-        cam.data.dof.aperture_fstop = 4.0
-        cam.data.dof.focus_distance = 4.5
-    # Track to origin
-    bpy.ops.object.empty_add(location=(0, 0, 0))
+    cam.data.lens = 52
+    bpy.ops.object.empty_add(location=(0, 0, 0.1))
     target = bpy.context.active_object
-    target.name = "cam_target"
     track = cam.constraints.new(type="TRACK_TO")
     track.target = target
     track.track_axis = "TRACK_NEGATIVE_Z"
@@ -370,440 +592,150 @@ def setup_renderer():
     scene.render.image_settings.color_mode = "RGBA"
     try:
         scene.eevee.taa_render_samples = 64
-        scene.eevee.use_ssr = True
-        scene.eevee.use_bloom = True
     except AttributeError:
         pass
-    # Filmic color management for better tonality
     scene.view_settings.view_transform = "Filmic"
     scene.view_settings.look = "Medium High Contrast"
 
 
-# ----- Humanoid via Skin modifier ----------------------------------------
+# =============================================================================
+# (4) Build the animated mesh + export
+# =============================================================================
 
-def build_humanoid_skeleton_mesh(world_positions: dict, name: str = "humanoid"):
-    """Build a vertex-skeleton mesh whose vertices are the joint positions;
-    add Skin + Subsurf modifiers to convert into smooth organic geometry.
+def build_animated_object(traj: dict):
+    frames = traj["frames"]
+    faces: list = []
+    mat_ranges: dict = {}
 
-    world_positions: dict of joint_name → (x, y, z) world position from MuJoCo.
-    """
-    # Joint connectivity — edges of the skeleton graph
-    # Each tuple defines: from_joint, to_joint, skin_radius_root, skin_radius_leaf
-    EDGES = [
-        # Spine: hip_center → torso → head
-        ("hip_center", "torso_lower", 0.140, 0.150),
-        ("torso_lower", "torso_upper", 0.150, 0.150),
-        ("torso_upper", "neck", 0.140, 0.075),
-        ("neck", "head", 0.075, 0.085),
-        # Right arm
-        ("torso_upper", "shoulder_R_skin", 0.130, 0.075),
-        ("shoulder_R_skin", "elbow_R_skin", 0.075, 0.060),
-        ("elbow_R_skin", "wrist_R_skin", 0.060, 0.045),
-        ("wrist_R_skin", "hand_R_skin", 0.045, 0.038),
-        # Left arm
-        ("torso_upper", "shoulder_L_skin", 0.130, 0.075),
-        ("shoulder_L_skin", "elbow_L_skin", 0.075, 0.060),
-        ("elbow_L_skin", "wrist_L_skin", 0.060, 0.045),
-        ("wrist_L_skin", "hand_L_skin", 0.045, 0.038),
-        # Right leg
-        ("hip_center", "hip_R_skin", 0.140, 0.115),
-        ("hip_R_skin", "knee_R_skin", 0.115, 0.075),
-        ("knee_R_skin", "ankle_R_skin", 0.075, 0.055),
-        # Left leg
-        ("hip_center", "hip_L_skin", 0.140, 0.115),
-        ("hip_L_skin", "knee_L_skin", 0.115, 0.075),
-        ("knee_L_skin", "ankle_L_skin", 0.075, 0.055),
-    ]
+    # frame 0 captures topology + material ranges
+    base_verts = build_frame(world_positions(frames[0]), faces, mat_ranges)
+    print(f"  topology: {len(base_verts)} verts, {len(faces)} faces")
 
-    # Compute derived joint positions from MuJoCo body positions
-    def get(name):
-        return world_positions.get(name)
-    sh_R = get("shoulder_R"); sh_L = get("shoulder_L")
-    if sh_R is None or sh_L is None:
-        return None
-    torso_upper = ((sh_R[0] + sh_L[0]) / 2,
-                   (sh_R[1] + sh_L[1]) / 2,
-                   (sh_R[2] + sh_L[2]) / 2)
-    hip_R = get("hip_R"); hip_L = get("hip_L")
-    hip_center = ((hip_R[0] + hip_L[0]) / 2,
-                   (hip_R[1] + hip_L[1]) / 2,
-                   (hip_R[2] + hip_L[2]) / 2)
-    torso_lower = (
-        (torso_upper[0] + hip_center[0]) / 2 + 0.05,
-        0.0,
-        (torso_upper[2] + hip_center[2]) / 2,
-    )
-    neck = (torso_upper[0] + 0.15, 0.0, torso_upper[2] + 0.05)
-    head = (torso_upper[0] + 0.35, 0.0, torso_upper[2] + 0.08)
+    # from_pydata preserves vertex AND polygon order exactly — essential so the
+    # morph-target index alignment and per-face material ranges stay valid.
+    mesh = bpy.data.meshes.new("manta_mesh")
+    mesh.from_pydata(base_verts, [], [list(f) for f in faces])
+    mesh.update()
+    mesh.validate(verbose=False)
 
-    # Helper: distance from a body name in MuJoCo trajectory
-    el_R = get("elbow_R"); el_L = get("elbow_L")
-    wr_R = get("wrist_R"); wr_L = get("wrist_L")
-    kn_R = get("knee_R"); kn_L = get("knee_L")
-    ank_R = get("ankle_R"); ank_L = get("ankle_L")
-
-    # Hand position — extend from wrist along the arm direction by ~0.2
-    def extend(p_anchor, p_dir, length):
-        dx = p_dir[0] - p_anchor[0]
-        dy = p_dir[1] - p_anchor[1]
-        dz = p_dir[2] - p_anchor[2]
-        L = math.sqrt(dx * dx + dy * dy + dz * dz)
-        if L < 1e-6:
-            return p_dir
-        return (p_dir[0] + dx / L * length,
-                p_dir[1] + dy / L * length,
-                p_dir[2] + dz / L * length)
-
-    hand_R = extend(el_R, wr_R, 0.20) if el_R and wr_R else wr_R
-    hand_L = extend(el_L, wr_L, 0.20) if el_L and wr_L else wr_L
-
-    joints = {
-        "hip_center":      hip_center,
-        "torso_lower":     torso_lower,
-        "torso_upper":     torso_upper,
-        "neck":            neck,
-        "head":            head,
-        "shoulder_R_skin": sh_R,
-        "elbow_R_skin":    el_R,
-        "wrist_R_skin":    wr_R,
-        "hand_R_skin":     hand_R,
-        "shoulder_L_skin": sh_L,
-        "elbow_L_skin":    el_L,
-        "wrist_L_skin":    wr_L,
-        "hand_L_skin":     hand_L,
-        "hip_R_skin":      hip_R,
-        "knee_R_skin":     kn_R,
-        "ankle_R_skin":    ank_R,
-        "hip_L_skin":      hip_L,
-        "knee_L_skin":     kn_L,
-        "ankle_L_skin":    ank_L,
-    }
-
-    # Build mesh
-    mesh = bpy.data.meshes.new(name + "_mesh")
-    obj = bpy.data.objects.new(name, mesh)
+    obj = bpy.data.objects.new("MANTA", mesh)
     bpy.context.collection.objects.link(obj)
-    bm = bmesh.new()
 
-    vtx = {}
-    for jname, pos in joints.items():
-        if pos is None:
-            continue
-        v = bm.verts.new(pos)
-        vtx[jname] = v
-    bm.verts.ensure_lookup_table()
+    # materials + per-face assignment
+    suit = make_material("suit", (0.16, 0.18, 0.23), metallic=0.05, roughness=0.62)
+    cfrp = make_material("cfrp", (0.03, 0.03, 0.04), metallic=0.7, roughness=0.28)
+    fabric = make_material("fabric", (0.10, 0.34, 0.85), roughness=0.35, alpha=0.62)
+    mesh.materials.append(suit)
+    mesh.materials.append(cfrp)
+    mesh.materials.append(fabric)
+    slot = {"suit": 0, "cfrp": 1, "fabric": 2}
+    for name, (lo, hi) in mat_ranges.items():
+        for fi in range(lo, hi):
+            poly = mesh.polygons[fi] if fi < len(mesh.polygons) else None
+            if poly is not None:
+                poly.material_index = slot[name]
+    # note: triangulation/ngon may shift indices slightly; assign by nearest
+    # is overkill — material ranges are contiguous and ngons preserved 1:1.
 
-    for from_, to_, _r0, _r1 in EDGES:
-        if from_ not in vtx or to_ not in vtx:
-            continue
-        bm.edges.new((vtx[from_], vtx[to_]))
+    # Basis shape key (frame 0)
+    obj.shape_key_add(name="frame_000", from_mix=False)
 
-    bm.to_mesh(mesh)
-    bm.free()
+    # Per-frame morph targets
+    for fi in range(1, len(frames)):
+        verts = build_frame(world_positions(frames[fi]))
+        sk = obj.shape_key_add(name=f"frame_{fi:03d}", from_mix=False)
+        for vi, co in enumerate(verts):
+            if vi < len(sk.data):
+                sk.data[vi].co = co
 
-    # Set per-vertex skin radii
-    skin_mod = obj.modifiers.new("skin", "SKIN")
-    skin_layer = obj.data.skin_vertices[0].data
-    vert_index = {v.co[:]: i for i, v in enumerate(mesh.vertices)}
-    for from_, to_, r0, r1 in EDGES:
-        if from_ not in joints or to_ not in joints:
-            continue
-        p_from = tuple(joints[from_])
-        p_to = tuple(joints[to_])
-        # Find vert indices
-        i_from = -1; i_to = -1
-        for i, v in enumerate(mesh.vertices):
-            if all(abs(v.co[k] - p_from[k]) < 1e-5 for k in range(3)):
-                i_from = i
-            if all(abs(v.co[k] - p_to[k]) < 1e-5 for k in range(3)):
-                i_to = i
-        if i_from >= 0:
-            skin_layer[i_from].radius = (r0, r0)
-        if i_to >= 0:
-            skin_layer[i_to].radius = (r1, r1)
-
-    # Mark "torso_upper" as the skin root
-    if "torso_upper" in joints:
-        p = tuple(joints["torso_upper"])
-        for i, v in enumerate(mesh.vertices):
-            if all(abs(v.co[k] - p[k]) < 1e-5 for k in range(3)):
-                skin_layer[i].use_root = True
-                break
-
-    # Subdivide for smoothness
-    sub = obj.modifiers.new("subsurf", "SUBSURF")
-    sub.levels = 2
-    sub.render_levels = 3
-
-    # Material — wingsuit fabric over skin
-    mat = make_material("suit", (0.20, 0.22, 0.26), metallic=0.05, roughness=0.65)
-    obj.data.materials.append(mat)
     bpy.ops.object.select_all(action="DESELECT")
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.shade_smooth()
+
+    # Animate shape keys: tent profile so adjacent frames blend smoothly.
+    keys = obj.data.shape_keys
+    keys.use_relative = True
+    scene = bpy.context.scene
+    scene.frame_start = 0
+    scene.frame_end = len(frames) - 1
+    # LINEAR interpolation between morph keys (so fractional times = a clean
+    # blend of the two neighbouring deployment frames).
+    try:
+        bpy.context.preferences.edit.keyframe_new_interpolation_type = "LINEAR"
+    except Exception:
+        pass
+    kb = keys.key_blocks
+    for fi in range(len(frames)):
+        kbi = kb[fi]
+        for set_frame in (fi - 1, fi, fi + 1):
+            if 0 <= set_frame <= len(frames) - 1:
+                kbi.value = 1.0 if set_frame == fi else 0.0
+                kbi.keyframe_insert("value", frame=set_frame)
+
     return obj
 
 
-# ----- Spine yoke + LE/TE spars + tip extensions -------------------------
-
-def add_tube(name, p_in, p_out, radius, material):
-    p_in = list(p_in); p_out = list(p_out)
-    dx, dy, dz = p_out[0] - p_in[0], p_out[1] - p_in[1], p_out[2] - p_in[2]
-    L = math.sqrt(dx * dx + dy * dy + dz * dz)
-    if L < 1e-5:
-        return None
-    mid = ((p_in[0] + p_out[0]) / 2,
-           (p_in[1] + p_out[1]) / 2,
-           (p_in[2] + p_out[2]) / 2)
-    bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=L, vertices=18, location=mid)
-    obj = bpy.context.active_object
-    obj.name = name
-    ux, uy, uz = dx / L, dy / L, dz / L
-    if abs(ux) + abs(uy) < 1e-9:
-        obj.rotation_euler = (0, 0, 0) if uz > 0 else (math.pi, 0, 0)
-    else:
-        ax, ay, az = -uy, ux, 0.0
-        ang = math.acos(max(-1.0, min(1.0, uz)))
-        anorm = math.sqrt(ax * ax + ay * ay + az * az)
-        ax /= anorm; ay /= anorm; az /= anorm
-        half = ang / 2
-        obj.rotation_mode = "QUATERNION"
-        obj.rotation_quaternion = (math.cos(half),
-                                     ax * math.sin(half),
-                                     ay * math.sin(half),
-                                     az * math.sin(half))
-    bpy.ops.object.shade_smooth()
-    obj.data.materials.append(material)
-    return obj
-
-
-def build_structure(world_positions: dict, mat_cfrp):
-    pieces = []
-    # Spine yoke: shoulder midpoint → hip midpoint, with TE hub at the back
-    sh_R = world_positions.get("shoulder_R")
-    sh_L = world_positions.get("shoulder_L")
-    hip_R = world_positions.get("hip_R")
-    hip_L = world_positions.get("hip_L")
-    if not all([sh_R, sh_L, hip_R, hip_L]):
-        return pieces
-    shoulder_mid = ((sh_R[0] + sh_L[0]) / 2,
-                     (sh_R[1] + sh_L[1]) / 2,
-                     (sh_R[2] + sh_L[2]) / 2 + 0.12)
-    hip_mid = ((hip_R[0] + hip_L[0]) / 2,
-                (hip_R[1] + hip_L[1]) / 2,
-                (hip_R[2] + hip_L[2]) / 2 + 0.10)
-    pieces.append(add_tube("spine_yoke", shoulder_mid, hip_mid, 0.022, mat_cfrp))
-
-    # Telescoping tubes (right + left)
-    for side in ("R", "L"):
-        wr = world_positions.get(f"wrist_{side}")
-        t1 = world_positions.get(f"tip1_{side}")
-        t2 = world_positions.get(f"tip2_{side}")
-        t3 = world_positions.get(f"tip3_{side}")
-        if all([wr, t1, t2, t3]):
-            seg = [(wr, t1, 0.022), (t1, t2, 0.018), (t2, t3, 0.013)]
-            for i, (a, b, r) in enumerate(seg):
-                d2 = sum((a[k] - b[k]) ** 2 for k in range(3))
-                if d2 > 1e-5:
-                    pieces.append(add_tube(f"tip{i+1}_{side}", a, b, r, mat_cfrp))
-
-    # TE telescoping
-    te_hub = world_positions.get("te_hub")
-    for side in ("R", "L"):
-        e1 = world_positions.get(f"te1_{side}")
-        e2 = world_positions.get(f"te2_{side}")
-        e3 = world_positions.get(f"te3_{side}")
-        if all([te_hub, e1, e2, e3]):
-            seg = [(te_hub, e1, 0.020), (e1, e2, 0.016), (e2, e3, 0.013)]
-            for i, (a, b, r) in enumerate(seg):
-                d2 = sum((a[k] - b[k]) ** 2 for k in range(3))
-                if d2 > 1e-5:
-                    pieces.append(add_tube(f"te{i+1}_{side}", a, b, r, mat_cfrp))
-
-    return pieces
-
-
-# ----- Airfoil-lofted wing skin ------------------------------------------
-
-def naca_section(chord: float, n: int = 24, t_c: float = 0.10):
-    """Return a list of 3D points (in section-local frame: x=chord, z=thickness, y=0)
-    for a NACA-4-digit symmetric airfoil with thickness t/c.
-    """
-    pts = []
-    # Upper surface from LE to TE
-    for i in range(n + 1):
-        x_c = (1 - math.cos(i * math.pi / n)) / 2   # cosine-spaced
-        yt = 5 * t_c * (
-            0.2969 * math.sqrt(x_c)
-            - 0.1260 * x_c
-            - 0.3516 * x_c * x_c
-            + 0.2843 * x_c ** 3
-            - 0.1015 * x_c ** 4
-        )
-        pts.append((x_c * chord, 0.0, +yt * chord))
-    # Lower surface from TE to LE
-    for i in range(n - 1, 0, -1):
-        x_c = (1 - math.cos(i * math.pi / n)) / 2
-        yt = 5 * t_c * (
-            0.2969 * math.sqrt(x_c)
-            - 0.1260 * x_c
-            - 0.3516 * x_c * x_c
-            + 0.2843 * x_c ** 3
-            - 0.1015 * x_c ** 4
-        )
-        pts.append((x_c * chord, 0.0, -yt * chord))
-    return pts
-
-
-def build_wing_skin(world_positions, mat_fabric):
-    """Loft airfoil sections from root to tip on both sides."""
-    sh_R = world_positions.get("shoulder_R"); sh_L = world_positions.get("shoulder_L")
-    tip_R = world_positions.get("tip3_R"); tip_L = world_positions.get("tip3_L")
-    te_hub = world_positions.get("te_hub")
-    te_R = world_positions.get("te3_R"); te_L = world_positions.get("te3_L")
-
-    if not all([sh_R, sh_L, tip_R, tip_L, te_hub, te_R, te_L]):
-        return []
-
-    pieces = []
-    for side_sign, sh, tip, te in [(1, sh_R, tip_R, te_R),
-                                       (-1, sh_L, tip_L, te_L)]:
-        # Need at least 0.4 m extension for skin to render
-        if abs(tip[1]) < 0.4:
-            continue
-        # Define 8 spanwise stations
-        n_stations = 10
-        sections = []
-        for i in range(n_stations + 1):
-            eta = i / n_stations
-            # LE point at this station (lerp shoulder→tip)
-            le_pt = (
-                sh[0] * (1 - eta) + tip[0] * eta,
-                sh[1] * (1 - eta) + tip[1] * eta,
-                sh[2] * (1 - eta) + tip[2] * eta,
-            )
-            # TE point at this station (lerp te_hub→te tip)
-            te_pt = (
-                te_hub[0] * (1 - eta) + te[0] * eta,
-                te_hub[1] * (1 - eta) + te[1] * eta,
-                te_hub[2] * (1 - eta) + te[2] * eta,
-            )
-            chord = math.sqrt(sum((te_pt[k] - le_pt[k]) ** 2 for k in range(3)))
-            if chord < 1e-4:
-                continue
-            # Build NACA section, then place it in world coords aligned with
-            # the local chord direction.
-            section_local = naca_section(chord, n=18, t_c=0.10)
-            # Compute chord direction (unit vector LE→TE)
-            cx = (te_pt[0] - le_pt[0]) / chord
-            cy = (te_pt[1] - le_pt[1]) / chord
-            cz = (te_pt[2] - le_pt[2]) / chord
-            # Build coordinate frame: chord_dir, span_dir (roughly +y for right
-            # wing), up_dir
-            chord_dir = (cx, cy, cz)
-            # Up direction = world +z, but orthogonal to chord
-            up = (0, 0, 1)
-            # Project up to be perp to chord_dir
-            dot = up[0] * cx + up[1] * cy + up[2] * cz
-            up_perp = (up[0] - dot * cx, up[1] - dot * cy, up[2] - dot * cz)
-            up_norm = math.sqrt(sum(u * u for u in up_perp))
-            up_perp = (up_perp[0] / up_norm, up_perp[1] / up_norm, up_perp[2] / up_norm)
-            # Span direction = chord × up
-            span_dir = (
-                chord_dir[1] * up_perp[2] - chord_dir[2] * up_perp[1],
-                chord_dir[2] * up_perp[0] - chord_dir[0] * up_perp[2],
-                chord_dir[0] * up_perp[1] - chord_dir[1] * up_perp[0],
-            )
-            # Transform section points: x_local → chord_dir, z_local → up_perp,
-            # origin at LE point.
-            section_world = []
-            for (x_l, _y_l, z_l) in section_local:
-                wx = le_pt[0] + x_l * chord_dir[0] + z_l * up_perp[0]
-                wy = le_pt[1] + x_l * chord_dir[1] + z_l * up_perp[1]
-                wz = le_pt[2] + x_l * chord_dir[2] + z_l * up_perp[2]
-                section_world.append((wx, wy, wz))
-            sections.append(section_world)
-
-        # Build the lofted surface as a mesh
-        mesh = bpy.data.meshes.new(f"wing_{('R' if side_sign > 0 else 'L')}_mesh")
-        obj = bpy.data.objects.new(f"wing_{('R' if side_sign > 0 else 'L')}", mesh)
-        bpy.context.collection.objects.link(obj)
-        bm = bmesh.new()
-        verts = []
-        for sec in sections:
-            verts.append([bm.verts.new(p) for p in sec])
-        # Stitch quads between consecutive sections
-        for i in range(len(verts) - 1):
-            v0 = verts[i]; v1 = verts[i + 1]
-            n_per = min(len(v0), len(v1))
-            for k in range(n_per - 1):
-                bm.faces.new([v0[k], v0[k + 1], v1[k + 1], v1[k]])
-        bm.normal_update()
-        bm.to_mesh(mesh)
-        bm.free()
-        obj.data.materials.append(mat_fabric)
-        bpy.ops.object.select_all(action="DESELECT")
-        obj.select_set(True)
-        bpy.context.view_layer.objects.active = obj
-        bpy.ops.object.shade_smooth()
-        pieces.append(obj)
-    return pieces
-
-
-# ----- Build scene + render ----------------------------------------------
-
-def world_positions_from_frame(frame: dict) -> dict:
+def world_positions(frame: dict) -> dict:
     return {name: body["pos"] for name, body in frame["bodies"].items()}
 
 
-def render_pose(name: str, frame: dict):
-    clear_scene()
-    build_world()
-    add_lights()
-    add_ground()
-    add_camera()
-    setup_renderer()
+def export_glb(obj):
+    SITE_MODELS.mkdir(parents=True, exist_ok=True)
+    for path in (OUT_DIR / "manta.glb", SITE_MODELS / "manta.glb"):
+        bpy.ops.export_scene.gltf(
+            filepath=str(path), export_format="GLB",
+            use_selection=True,
+            export_animations=True,
+            export_morph=True,
+            export_morph_animation=True,
+            export_yup=True,
+        )
+        print(f"  exported {path}")
 
-    mat_cfrp = make_material("cfrp", (0.04, 0.04, 0.05), metallic=0.6, roughness=0.30)
-    mat_fabric = make_material("fabric", (0.20, 0.40, 0.85), roughness=0.40, alpha=0.55)
 
-    positions = world_positions_from_frame(frame)
-    build_humanoid_skeleton_mesh(positions)
-    build_structure(positions, mat_cfrp)
-    build_wing_skin(positions, mat_fabric)
-
-    out_path = OUT_DIR / f"{name}.png"
-    bpy.context.scene.render.filepath = str(out_path)
-    print(f"  rendering {out_path.name}...")
+def render_still(obj, name, frame_idx):
+    bpy.context.scene.frame_set(frame_idx)
+    out = OUT_DIR / f"{name}.png"
+    bpy.context.scene.render.filepath = str(out)
+    print(f"  render {out.name} (frame {frame_idx})...")
     bpy.ops.render.render(write_still=True)
-    print(f"  done.")
-
-    # Export GLB
-    glb_path = OUT_DIR / f"{name}.glb"
-    bpy.ops.export_scene.gltf(filepath=str(glb_path), export_format="GLB",
-                              export_animations=False)
 
 
 def main():
-    print("(1) Running MuJoCo physics simulation...")
-    traj = run_simulation()
-    traj_path = OUT_DIR / "trajectory.json"
-    with traj_path.open("w") as f:
-        json.dump(traj, f)
-    print(f"    wrote {traj_path}")
+    render_stills = "--render" in sys.argv
 
-    # Pick three keyframes: stowed, mid-deploy, deployed
-    n = len(traj["frames"])
-    keyframes = [
-        ("stowed", traj["frames"][0]),
-        ("mid_deploy", traj["frames"][n // 2 + 5]),
-        ("deployed", traj["frames"][-1]),
-    ]
-    print("(2) Building Blender scenes...")
-    for name, frame in keyframes:
-        print(f"  pose: {name} (t = {frame['t']:.3f} s)")
-        render_pose(name, frame)
+    print("(1) MuJoCo deployment kinematics...")
+    traj = run_simulation()
+    (OUT_DIR / "trajectory.json").write_text(json.dumps(traj))
+
+    print("(2) Building Blender scene...")
+    clear_scene()
+    build_world()
+    add_lights()
+    add_camera()
+    setup_renderer()
+
+    print("(3) Building animated mesh (morph targets)...")
+    obj = build_animated_object(traj)
+
+    print("(4) Exporting animated GLB...")
+    export_glb(obj)
+
+    if render_stills:
+        print("(5) Rendering hero stills...")
+        # ground for stills only
+        bpy.ops.mesh.primitive_plane_add(size=40, location=(0, 0, -0.7))
+        plane = bpy.context.active_object
+        plane.data.materials.append(make_material("ground", (0.07, 0.07, 0.09),
+                                                   roughness=0.85))
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        render_still(obj, "hero_stowed", 0)
+        render_still(obj, "hero_mid_deploy", N_FRAMES // 2)
+        render_still(obj, "hero_deployed", N_FRAMES - 1)
+
+    print("done.")
 
 
 if __name__ == "__main__":
