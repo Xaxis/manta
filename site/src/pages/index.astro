@@ -75,14 +75,14 @@ import Viewer from "../components/viewer/Viewer.tsx";
       <MetricCard label="Wing area" value="6.5" unit="m²" note="Resized down from 8.4 m² — lands under reserve, so a low stall speed isn't required." />
       <MetricCard label="Span" value="6.3" unit="m" note="Aspect ratio 6.11, taper 0.4, sweep 25°, washout 6°." />
       <MetricCard label="CL_α (3D, Weissinger)" value="4.17" unit="/rad" note="≈ 0.073 /deg. Helmbold cross-checked." />
-      <MetricCard label="Static margin (design CL)" value="5.6 %" unit="MAC" note="At the trim washout." />
+      <MetricCard label="Static margin (6° washout)" value="4.8 %" unit="MAC" tone="warn" note="Trim study, design CL. Down from 5.4% before the resize; the dynamic CG-sweep is tighter (~2.7%). Alpha-limiter is now even more load-bearing." />
       <MetricCard label="(L/D)ₘₐₓ" value="11.6" note="At V ≈ 18 m/s, nominal body CdA = 0.20 m²." />
-      <MetricCard label="Stowed thickness off body" value="87" unit="mm" tone="good" note="Within BRIEF target (< 150 mm). Dominated by spine yoke OD; structure runs along arms/legs, not on top of the rig." />
-      <MetricCard label="Deployment time" value="≈ 0.6" unit="s" note="Phase A arm spread + Phase B tip-extension + Phase D skin tension." />
-      <MetricCard label="LE spar root OD" value="62" unit="mm" note="Along-arm spar; slightly downsized from the 73 mm bending-sized aircraft-style root because the load path is different." />
+      <MetricCard label="Dutch-roll damping ζ" value="0.17" tone="warn" note="At V_bg, resized planform (was 0.29). Level 2/3 — the artificial yaw damper is now mandatory, not just recommended." />
+      <MetricCard label="Deployment time" value="≈ 0.6" unit="s" note="Phase A arm spread + Phase B boom telescope + Phase D skin tension." />
+      <MetricCard label="LE spar root OD" value="67" unit="mm" tone="warn" note="Bending-sized for the resized wing (3 g limit, SF≥1.5). Smaller than the old 73 mm — shorter span → less root moment." />
       <MetricCard label="Wrist tip extension" value="2.40" unit="m" note="3-stage telescoping CFRP; CO₂-driven. Shorter boom after the resize." />
       <MetricCard label="Symmetry 3-σ |Δt|" value="16.3" unit="ms" tone="warn" note="vs. BRIEF 10 ms gate — locked architecture FAILS. Active modulation closes it at 8.1 ms." />
-      <MetricCard label="Pilot 50 mm CG shift" value="3.26 %" unit="MAC" tone="warn" note="≈ entire static margin. Alpha limiter mandatory." />
+      <MetricCard label="Pilot 50 mm CG shift" value="3.6 %" unit="MAC" tone="warn" note="≈ 75% of the static margin on the smaller wing (MAC shrank to 1.095 m). ~3 cm aft and the wing goes neutral — alpha limiter mandatory." />
       <MetricCard label="Tests" value="27 / 27" tone="good" note="Across analysis/ and fcs/. make test reproduces locally." />
     </div>
   </Section>

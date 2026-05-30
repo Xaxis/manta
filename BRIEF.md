@@ -126,6 +126,17 @@ These came out of deliverables #1–#6 + the architecture rebuild:
    wing planform floating above the pilot. The CORRECT concept is the
    arm-braced wingsuit-extension architecture defined above. This
    amendment supersedes architecture decisions in BRIEF v1.
+5. **The 6.5 m²/6.3 m resize (finding #5 above) costs stability.**
+   Re-running struct + flight-dynamics for the smaller wing: static
+   margin falls to **4.8 % MAC** (trim study, 6° washout; the dynamic
+   CG-sweep is tighter, ~2.7 %) from the old 5.4 %, and Dutch-roll
+   damping drops to **ζ ≈ 0.17** (was 0.29). Consequences: the
+   alpha-limiter is even more load-bearing, the artificial yaw damper
+   becomes **mandatory** (not just recommended), and a ~3 cm aft pilot
+   CG shift takes the wing neutral. **Open decision:** accept this and
+   lean harder on the FCS, raise washout toward 7° (recovers ~1 % SM),
+   or revisit the wing size for a stability/deployability balance.
+   Upside of the resize is unchanged: ~2.4 m boom (was 2.9), L/D 11.6.
 
 ## First deliverables (revised priority)
 

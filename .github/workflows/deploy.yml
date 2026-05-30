@@ -63,6 +63,6 @@ jobs:
         run: |
           echo "## ✈️ MANTA site deployed" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Production: <https://manta-ten.vercel.app>" >> "$GITHUB_STEP_SUMMARY"
+          echo "Production: <https://manta.flights>" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Latest deploy URL: ${{ steps.deploy.outputs.deploy_url }}" >> "$GITHUB_STEP_SUMMARY"

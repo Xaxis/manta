@@ -143,9 +143,9 @@ class AlphaLimiter:
         }
 
     def estimate_alpha_for_trim(self, V: float, m: float, rho: float,
-                                 cl_alpha_per_rad: float = 4.24,
-                                 alpha_0_deg: float = -1.0,
-                                 S: float = 8.4) -> float:
+                                 cl_alpha_per_rad: float = 4.17,
+                                 alpha_0_deg: float = 1.0,
+                                 S: float = 6.5) -> float:
         """Coarse degraded-mode α estimate from trim equation."""
         import math
         g = 9.80665

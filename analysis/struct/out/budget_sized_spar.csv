@@ -1,12 +1,12 @@
 component,mass_kg
 "Spars (4 spars, both sides)",6.5117
-"Ribs (tape-spring × per side)",1.1348
-"Skin (DCF + bond overhead)",0.9517
+"Ribs (tape-spring × per side)",1.0642
+"Skin (DCF + bond overhead)",0.7365
 "Root fittings + cutters",1.6000
 "Pneumatic deployment",0.7300
 "Flight control system",0.8600
 "Actuators + reversion",0.9700
 "Drogue + bridle",0.3500
 "Harness shell + interface",2.0000
-"Margin (10 % of allocated)",1.5108
-"TOTAL",16.6191
+"Margin (10 % of allocated)",1.4822
+"TOTAL",16.3047

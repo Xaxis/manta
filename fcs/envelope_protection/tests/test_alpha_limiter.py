@@ -70,8 +70,12 @@ def test_limit_never_exceeds_alpha_stall():
 
 
 def test_estimate_alpha_for_trim():
-    """Coarse trim α from CL = mg/(0.5·ρV²S) at the design pilot mass."""
+    """Coarse trim α from CL = mg/(0.5·ρV²S) at the design pilot mass.
+
+    Resized planform defaults (S = 6.5 m², CL_α = 4.17 /rad, α₀ = +1°); checked
+    at the cruise point (the smaller wing's V_bg is ~18 m/s, so use ~20 m/s).
+    """
     lim = AlphaLimiter()
-    a = lim.estimate_alpha_for_trim(V=16.0, m=105.0, rho=1.225)
-    # CL = 105·9.81/(0.5·1.225·256·8.4) = 0.782; α = -1° + 0.782/4.24·57.296 ≈ 9.6°
-    assert 8.0 < a < 11.5
+    a = lim.estimate_alpha_for_trim(V=20.0, m=106.0, rho=1.225)
+    # CL = 106·9.81/(0.5·1.225·400·6.5) = 0.653; α = 1° + 0.653/4.17·57.296 ≈ 10.0°
+    assert 8.0 < a < 12.0
