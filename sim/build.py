@@ -301,7 +301,8 @@ THIGH, SHANK, FOOT = 0.43, 0.42, 0.20
 TORSO_LEN = 0.52           # acromion -> hip
 NECK_LEN, HEAD_LEN = 0.10, 0.20   # head length ~0.20 m (50th-%ile male)
 X_SHOULDER = 0.45          # shoulder x (mid-chord); arms angle fwd to the LE
-Z_BODY = Z_WING - 0.06     # prone body hangs just below the wing plane
+Z_BODY = Z_WING - 0.02     # body sits INSIDE the airfoil thickness (belly = the
+                           # lower 'wingsuit' surface, back near the upper skin)
 
 ARM_REACH = UPPER_ARM + FOREARM       # shoulder -> wrist (fixed)
 LEG_REACH = THIGH + SHANK             # hip -> ankle (fixed)
@@ -514,30 +515,47 @@ class Mesh:
                 faces.append((c0, rings[0] + kn, rings[0] + k))
                 faces.append((c1, rings[-1] + k, rings[-1] + kn))
 
-    def wing_skin(self, prog, loop, t_scale, billow, faces=None, meta=None):
-        """ONE continuous cambered wing, tip-to-tip across the body."""
+    def wing_surface(self, prog, surf, faces=None, meta=None):
+        """ONE face of the cambered double-surface wing, tip-to-tip. surf='u'
+        is the upper deployed-wing skin; surf='l' is the lower 'wingsuit'
+        membrane. The two surfaces share the LE (xc=0) and TE (xc=1) verts so
+        they meet seamlessly into a closed airfoil with the pilot + spars inside
+        (a ram-air / paraglider-style double-surface, not a single sheet)."""
         ns = 2 * N_SPAN_HALF + 1
+        nc = N_CHORD
         hs = half_span(prog)
         # furled wing reads smooth; billow develops as the skin tensions out
-        billow_eff = billow * min(1.0, hs / HALF_SPAN_FULL)
-        nl = len(loop)
+        billow_eff = BILLOW * min(1.0, hs / HALF_SPAN_FULL)
         base = len(self.verts)
         for i in range(ns):
             frac = (i / (ns - 1)) * 2 - 1            # -1..1
             y = frac * hs
-            pts, mt = wing_section_points(y, prog, loop, t_scale, billow_eff)
-            self.verts.extend(pts)
-            if meta is not None:
-                meta.extend(mt)
+            le = le_point(y)
+            c = chord_at(y, prog)
+            eta = min(abs(y) / HALF_SPAN_FULL, 1.0)
+            twist = -math.radians(PLAN_WASHOUT_DEG) * eta
+            qc = (le[0] - 0.25 * c, y, Z_WING)
+            scallop = 1.0 + billow_eff * math.cos(math.pi * eta * N_RIBS) ** 2
+            for j in range(nc):
+                xc = 0.5 * (1 - math.cos(math.pi * j / (nc - 1)))
+                up, lo = naca4_surface(xc, AF_M, AF_P, AF_T_SKIN)
+                off = up if surf == "u" else lo
+                px = le[0] - xc * c
+                pz = Z_WING + off * c * scallop
+                self.verts.append(_rot_y((px, y, pz), qc, twist))
+                if meta is not None:
+                    meta.append((eta, xc, surf))
         if faces is not None:
             for i in range(ns - 1):
-                for k in range(nl):
-                    kn = (k + 1) % nl
-                    a = base + i * nl + k
-                    b = base + i * nl + kn
-                    c = base + (i + 1) * nl + kn
-                    d = base + (i + 1) * nl + k
-                    faces.append((a, b, c, d))
+                for j in range(nc - 1):
+                    a = base + i * nc + j
+                    b = base + i * nc + (j + 1)
+                    c2 = base + (i + 1) * nc + (j + 1)
+                    d = base + (i + 1) * nc + j
+                    if surf == "u":
+                        faces.append((a, b, c2, d))
+                    else:                       # flip winding so it faces down
+                        faces.append((a, d, c2, b))
 
     def rib(self, y, prog, loop, t_scale, span_thick, faces=None):
         """Airfoil-profile rib as a thin extruded plate at spanwise station y."""
@@ -587,8 +605,8 @@ class Mesh:
 # (6) Full vehicle assembly — one frame
 # =============================================================================
 
-SLOTS = ["suit", "helmet", "cfrp", "skin", "tail", "rib", "reserve", "fcs",
-         "flaperon", "metal"]
+SLOTS = ["suit", "helmet", "cfrp", "skin", "wingsuit", "tail", "rib",
+         "reserve", "fcs", "flaperon", "metal"]
 
 
 def _pilot_fk(prog):
@@ -702,49 +720,48 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
         m.tube(vadd(node, (0, 0, 0.055)), vadd(node, (0, 0, -0.055)), r, r, faces)
         m.box(node, (0.055, 0.052, 0.042), faces)
     hs = half_span(prog)
-    # boom roots start at the FIXED-length hand/foot hubs (fall out of the FK,
-    # NOT a stretched span); the booms cover hand/foot -> tip with no orphan
-    # limb stub past the boom root.
-    awr = abs(N["R"]["hand"][1])
-    awk = abs(N["R"]["foot"][1])
+    # The spars run INSIDE the airfoil (aft of the LE / fwd of the TE, on the
+    # chord line, between the two fabric surfaces) — they are the structure that
+    # guides the wing out and tensions the fabric into the lifting shape, like a
+    # paraglider's internal battens. The pilot's arm/leg lies alongside each
+    # spar (BRIEF #2). 3 telescoping stages root -> tip.
+    in_le = (-0.06, 0, 0.0)        # aft of LE on the chord line => inside fabric
+    in_te = (0.06, 0, 0.0)         # fwd of TE => inside fabric
     for s in ("R", "L"):
         sgn = 1.0 if s == "R" else -1.0
         n = N[s]
-        radii = [(0.024, 0.020), (0.019, 0.015), (0.014, 0.011)]
-        # LE spar bonded under the arm, then a genuine 3-stage telescoping boom
-        # (3 distinct, non-degenerate, OD-stepped tubes wrist -> tip)
-        m.tube(n["sh"], n["el"], 0.036, 0.030, faces)
-        m.tube(n["el"], n["wr"], 0.030, 0.025, faces)
-        m.tube(n["wr"], n["hand"], 0.025, 0.021, faces)
-        # booms ride just below the LE skin (z offset) so the nested OD-stepped
-        # stages stay legible through the translucent skin.  The first stage
-        # continues the limb's own axis off the hand/foot so there's no kink at
-        # the hub; later stages rejoin the swept planform edge.
-        bz = (0.0, 0.0, -0.05)
-        boom_le = [vadd(le_point(sgn * lerp(awr, hs, 1 / 3)), bz),
-                   vadd(le_point(sgn * lerp(awr, hs, 2 / 3)), bz),
-                   vadd(le_point(sgn * hs), bz)]
-        prev = n["hand"]
-        for k, node in enumerate(boom_le):
-            m.tube(prev, node, radii[k][0], radii[k][1], faces)
-            prev = node
-        # TE spar along the leg to the foot, then a matching 3-stage boom
-        m.tube(n["hip"], n["kn"], 0.034, 0.028, faces)
-        m.tube(n["kn"], n["ank"], 0.028, 0.022, faces)
-        m.tube(n["ank"], n["foot"], 0.022, 0.018, faces)
-        boom_te = [vadd(te_point(sgn * lerp(awk, hs, 1 / 3), prog), bz),
-                   vadd(te_point(sgn * lerp(awk, hs, 2 / 3), prog), bz),
-                   vadd(te_point(sgn * hs, prog), bz)]
-        prev = n["foot"]
-        for k, node in enumerate(boom_te):
-            m.tube(prev, node, radii[k][0] * 0.92, radii[k][1] * 0.92, faces)
-            prev = node
+        # LE spar: riser from the shoulder hub up into the wing, then 3 stages
+        le0 = vadd(le_point(sgn * SHOULDER_HALF), in_le)
+        m.tube(n["sh"], le0, 0.030, 0.028, faces)
+        le_nodes = [le0,
+                    vadd(le_point(sgn * lerp(SHOULDER_HALF, hs, 1 / 3)), in_le),
+                    vadd(le_point(sgn * lerp(SHOULDER_HALF, hs, 2 / 3)), in_le),
+                    vadd(le_point(sgn * hs), in_le)]
+        rle = [(0.036, 0.026), (0.024, 0.018), (0.015, 0.011)]
+        for k in range(3):
+            m.tube(le_nodes[k], le_nodes[k + 1], rle[k][0], rle[k][1], faces)
+        # TE spar: riser from the hip hub, then 3 stages along the trailing edge
+        te0 = vadd(te_point(sgn * HIP_HALF, prog), in_te)
+        m.tube(n["hip"], te0, 0.028, 0.026, faces)
+        te_nodes = [te0,
+                    vadd(te_point(sgn * lerp(HIP_HALF, hs, 1 / 3), prog), in_te),
+                    vadd(te_point(sgn * lerp(HIP_HALF, hs, 2 / 3), prog), in_te),
+                    vadd(te_point(sgn * hs, prog), in_te)]
+        rte = [(0.030, 0.021), (0.019, 0.014), (0.013, 0.010)]
+        for k in range(3):
+            m.tube(te_nodes[k], te_nodes[k + 1], rte[k][0], rte[k][1], faces)
     end("cfrp", fs, vs)
 
-    # ---- (2) WING SKIN (continuous cambered planform, tip-to-tip) ----
+    # ---- (2) WING — double surface: upper deployed skin + lower wingsuit ----
+    # Upper = the lofted rigid-wing skin (carries the suction that makes lift);
+    # lower = the wingsuit fabric the pilot wears. They meet seamlessly at the
+    # LE/TE so the pilot + spars sit INSIDE a closed airfoil (paraglider-style).
     fs, vs = _begin(faces, m)
-    m.wing_skin(prog, sk_loop, AF_T_SKIN, BILLOW, faces, skin_meta)
+    m.wing_surface(prog, "u", faces, skin_meta)
     end("skin", fs, vs)
+    fs, vs = _begin(faces, m)
+    m.wing_surface(prog, "l", faces)
+    end("wingsuit", fs, vs)
 
     # ---- (2b) TAIL MEMBRANE — the leg-wing webbed between the legs ----
     # The pilot's legs splay aft to form the rear stabiliser: a fabric membrane
@@ -886,8 +903,8 @@ DEPLOYED_PROG = {"spread": 1.0, "tip": 1.0, "rib": 1.0, "flap": 1.0}
 def build_pressure_object():
     m = Mesh()
     faces, meta = [], []
-    m.wing_skin(DEPLOYED_PROG, airfoil_loop(N_CHORD, AF_T_SKIN), AF_T_SKIN,
-                BILLOW, faces, meta)
+    # the upper (suction) surface is what carries the lift colourmap
+    m.wing_surface(DEPLOYED_PROG, "u", faces, meta)
     cl_of = load_span_cl()
     cps = [cp_at(xc, side, cl_of(eta)) for (eta, xc, side) in meta]
     lo, hi = min(cps), max(cps)
@@ -1100,6 +1117,7 @@ def build_morph_object(traj):
         "helmet": make_material("helmet", (0.86, 0.88, 0.92), metallic=0.3, roughness=0.28),
         "cfrp": make_material("cfrp", (0.025, 0.025, 0.032), metallic=0.75, roughness=0.26),
         "skin": make_material("skin", (0.10, 0.34, 0.85), roughness=0.30, alpha=0.32),
+        "wingsuit": make_material("wingsuit", (0.09, 0.12, 0.20), roughness=0.7, alpha=0.62),
         "tail": make_material("tail", (0.16, 0.44, 0.88), roughness=0.32, alpha=0.42),
         "rib": make_material("rib", (0.06, 0.07, 0.09), metallic=0.5, roughness=0.4),
         "reserve": make_material("reserve", (0.85, 0.30, 0.08), roughness=0.55),
