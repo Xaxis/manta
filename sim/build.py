@@ -273,10 +273,54 @@ N_SPAN_HALF = 36           # stations per half (skin); >=4 samples per rib-bay
 N_RIBS = 9                 # bistable ribs per side
 BILLOW = 0.14              # skin bulge between ribs (fraction of thickness)
 
+# ---- Pilot anthropometry — FIXED bone lengths (NASA-STD-3000 / ANSUR II, m) -
+# The human is a rigid-proportion body; it NEVER stretches.  Deployment rotates
+# the limbs (fixed lengths) and telescopes the booms — it does not grow the
+# pilot.  See memory: project_human_fixed_size_architecture.
+SHOULDER_HALF = 0.20       # biacromial / 2
+HIP_HALF = 0.145           # bi-iliac / 2
+UPPER_ARM, FOREARM, HAND = 0.32, 0.27, 0.17
+THIGH, SHANK, FOOT = 0.43, 0.42, 0.20
+TORSO_LEN = 0.52           # acromion -> hip
+NECK_LEN, HEAD_LEN = 0.10, 0.24
+X_SHOULDER = 0.45          # shoulder x (mid-chord); arms angle fwd to the LE
+Z_BODY = Z_WING - 0.06     # prone body hangs just below the wing plane
+
+ARM_REACH = UPPER_ARM + FOREARM       # shoulder -> wrist (fixed)
+LEG_REACH = THIGH + SHANK             # hip -> ankle (fixed)
+
+# deployed/stowed limb directions (unit, right side; left mirrors y).  Arms
+# point forward+outboard to lie near the LE; legs point aft+outboard to form
+# the rear/tail near the TE.
+ARM_DIR_DEP = vnorm((0.33, 0.945, -0.02))
+ARM_DIR_STOW = vnorm((0.55, 0.18, -0.55))
+LEG_DIR_DEP = vnorm((-0.74, 0.63, -0.06))
+LEG_DIR_STOW = vnorm((-0.92, 0.12, -0.30))
+
+# span station the wrist/ankle reach when fully spread (fixed-length FK)
+WRIST_Y_DEP = SHOULDER_HALF + ARM_REACH * ARM_DIR_DEP[1]
+ANKLE_Y_DEP = HIP_HALF + LEG_REACH * LEG_DIR_DEP[1]
+INBOARD_DEP = max(WRIST_Y_DEP, ANKLE_Y_DEP)
+
+
+def _reach_y(d_stow, d_dep, reach, base_half, sp):
+    """Spanwise |y| a fixed-length limb's tip reaches at spread fraction sp."""
+    return base_half + reach * vnorm(vlerp(d_stow, d_dep, sp))[1]
+
+
+def inboard_reach(prog):
+    """The further of the wrist/ankle span stations from the fixed-length FK."""
+    sp = prog["spread"]
+    return max(_reach_y(ARM_DIR_STOW, ARM_DIR_DEP, ARM_REACH, SHOULDER_HALF, sp),
+               _reach_y(LEG_DIR_STOW, LEG_DIR_DEP, LEG_REACH, HIP_HALF, sp))
+
 
 def half_span(prog):
-    """Tip-to-root half span as the wing opens: arm spread then tip telescope."""
-    return 0.40 + prog["spread"] * (1.30 - 0.40) + prog["tip"] * (HALF_SPAN_FULL - 1.30)
+    """Half span: the FIXED-length limbs spread to the inboard reach (Phase A),
+    then the telescoping booms cover the remainder to the tip (Phase B). The
+    pilot never stretches; the booms provide the span beyond the wrist/ankle so
+    the membrane edge always tracks the actual limb reach."""
+    return inboard_reach(prog) + (HALF_SPAN_FULL - INBOARD_DEP) * prog["tip"]
 
 
 def chord_scale(prog):
@@ -419,6 +463,40 @@ class Mesh:
                 (idx(-1,-1,1), idx(-1,1,1), idx(1,1,1), idx(1,-1,1)),
             ])
 
+    def _ellipse_ring(self, center, up, side, ry, rz):
+        base = len(self.verts)
+        for k in range(RING_SEG):
+            a = 2 * math.pi * k / RING_SEG
+            c, s = math.cos(a), math.sin(a)
+            self.verts.append(vadd(center, vadd(vscale(side, c * ry),
+                                                vscale(up, s * rz))))
+        return base
+
+    def loft(self, centers, radii, faces=None):
+        """Loft elliptical cross-sections (ry along width, rz along depth) along
+        a centerline. Used for the anatomical pilot body (broad-shouldered,
+        prone torso + tapered limbs). Cap verts are always appended so the
+        vertex count is identical on every morph frame."""
+        n = len(centers)
+        rings = []
+        for i in range(n):
+            ax = vnorm(vsub(centers[min(i + 1, n - 1)], centers[max(i - 1, 0)]))
+            up, side = _orthoframe(ax)
+            ry, rz = radii[i]
+            rings.append(self._ellipse_ring(centers[i], up, side, ry, rz))
+        c0 = len(self.verts); self.verts.append(tuple(centers[0]))
+        c1 = len(self.verts); self.verts.append(tuple(centers[-1]))
+        if faces is not None:
+            for i in range(n - 1):
+                for k in range(RING_SEG):
+                    kn = (k + 1) % RING_SEG
+                    faces.append((rings[i] + k, rings[i] + kn,
+                                  rings[i + 1] + kn, rings[i + 1] + k))
+            for k in range(RING_SEG):
+                kn = (k + 1) % RING_SEG
+                faces.append((c0, rings[0] + kn, rings[0] + k))
+                faces.append((c1, rings[-1] + k, rings[-1] + kn))
+
     def wing_skin(self, prog, loop, t_scale, billow, faces=None, meta=None):
         """ONE continuous cambered wing, tip-to-tip across the body."""
         ns = 2 * N_SPAN_HALF + 1
@@ -471,30 +549,42 @@ class Mesh:
 SLOTS = ["suit", "cfrp", "skin", "rib", "reserve", "fcs", "flaperon", "metal"]
 
 
-def _pilot_nodes(prog):
-    """Pilot skeleton placed along the wing: arms on the LE, legs on the TE."""
-    spread = prog["spread"]
-    hs = half_span(prog)
-    y_wr = lerp(0.24, 0.98, spread)
-    y_ank = lerp(0.20, 0.92, spread)
-    lo = (0, 0, -0.05)            # drop limbs just under the skin
+def _pilot_fk(prog):
+    """Forward kinematics for a FIXED-proportion pilot. Torso anchors never
+    move; the limbs ROTATE about the shoulder/hip with FIXED bone lengths
+    (no stretching) from a tucked pose (stowed) to a spread pose (deployed).
+    Arms angle forward+out toward the LE; legs angle aft+out forming the
+    rear/tail near the TE."""
+    sp = prog["spread"]
+    sh_c = (X_SHOULDER, 0.0, Z_BODY)
+    hip_c = (X_SHOULDER - TORSO_LEN, 0.0, Z_BODY - 0.02)
+
+    def march(anchor, d_stow, d_dep, sgn, segs):
+        d = vnorm(vlerp((d_stow[0], sgn * d_stow[1], d_stow[2]),
+                        (d_dep[0], sgn * d_dep[1], d_dep[2]), sp))
+        pts = [anchor]
+        p = anchor
+        for L in segs:
+            p = vadd(p, vscale(d, L))
+            pts.append(p)
+        return pts
+
     N = {}
     for side, sgn in (("R", 1.0), ("L", -1.0)):
-        sh = vadd(le_point(sgn * 0.20), (-0.05, 0, -0.05))
-        wr = vadd(le_point(sgn * y_wr), lo)
-        el = vadd(le_point(sgn * (0.20 + y_wr) / 2), (0, 0, -0.07))
-        hand = vadd(le_point(sgn * min(y_wr + 0.12, hs)), lo)
-        hip = vadd(te_point(sgn * 0.16, prog), (0, 0, -0.05))
-        ank = vadd(te_point(sgn * y_ank, prog), lo)
-        kn = vadd(te_point(sgn * (0.16 + y_ank) / 2, prog), (0, 0, -0.07))
-        N[side] = dict(sh=sh, wr=wr, el=el, hand=hand, hip=hip, ank=ank, kn=kn)
-    sh_c = vlerp(N["R"]["sh"], N["L"]["sh"], 0.5)
-    hip_c = vlerp(N["R"]["hip"], N["L"]["hip"], 0.5)
-    N["torso_up"] = sh_c
+        sh = (X_SHOULDER, sgn * SHOULDER_HALF, Z_BODY)
+        hip = (X_SHOULDER - TORSO_LEN, sgn * HIP_HALF, Z_BODY - 0.02)
+        el, wr, hand = march(sh, ARM_DIR_STOW, ARM_DIR_DEP, sgn,
+                             [UPPER_ARM, FOREARM, HAND])[1:]
+        kn, ank, foot = march(hip, LEG_DIR_STOW, LEG_DIR_DEP, sgn,
+                              [THIGH, SHANK, FOOT])[1:]
+        N[side] = dict(sh=sh, el=el, wr=wr, hand=hand,
+                       hip=hip, kn=kn, ank=ank, foot=foot)
+    N["sh_c"] = sh_c
+    N["hip_c"] = hip_c
+    N["torso_up"] = sh_c      # aliases used by the CFRP / reserve / FCS sections
     N["hip_mid"] = hip_c
-    N["torso_lo"] = vlerp(sh_c, hip_c, 0.5)
-    N["neck"] = vadd(sh_c, (0.12, 0, 0.02))
-    N["head"] = (X_ROOT_LE - 0.02, 0.0, Z_WING - 0.03)
+    N["neck"] = vadd(sh_c, (NECK_LEN * 0.6, 0, 0.05))
+    N["head"] = (X_SHOULDER + NECK_LEN + HEAD_LEN * 0.4, 0.0, Z_BODY + 0.04)
     return N
 
 
@@ -506,7 +596,7 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
     m = Mesh()
     prog = phase_progress(frame["t"])
     f0 = faces is not None
-    N = _pilot_nodes(prog)
+    N = _pilot_fk(prog)
 
     def end(name, fs, vs):
         if f0:
@@ -516,24 +606,32 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
     sk_loop = airfoil_loop(N_CHORD, AF_T_SKIN)
     rib_loop = airfoil_loop(N_CHORD, AF_T_SKIN * 1.04)
 
-    # ---- (0) PILOT / HARNESS ----
+    # ---- (0) PILOT — fixed-proportion anatomical body (NASA-STD-3000) ----
     fs, vs = _begin(faces, m)
-    m.tube(N["hip_mid"], N["torso_lo"], 0.150, 0.165, faces)
-    m.tube(N["torso_lo"], N["torso_up"], 0.165, 0.150, faces)
-    m.tube(N["torso_up"], N["neck"], 0.140, 0.078, faces)
-    m.sphere(N["head"], 0.115, faces)
+    sh_c, hip_c = N["sh_c"], N["hip_c"]
+    # torso: broad shoulders -> waist -> pelvis. (ry = width/2 along span,
+    # rz = depth/2; a prone torso is wider than it is deep.)
+    torso_line = [vadd(sh_c, (0.05, 0, 0.015)),
+                  vlerp(sh_c, hip_c, 0.24), vlerp(sh_c, hip_c, 0.5),
+                  vlerp(sh_c, hip_c, 0.74), hip_c]
+    torso_rad = [(0.150, 0.110), (0.175, 0.122), (0.140, 0.108),
+                 (0.128, 0.102), (0.162, 0.112)]
+    m.loft(torso_line, torso_rad, faces)
+    # neck + ovoid head (helmet/hood)
+    m.loft([sh_c, N["neck"]], [(0.085, 0.075), (0.058, 0.056)], faces)
+    m.loft([N["neck"], vadd(N["head"], (-0.05, 0, -0.01)), N["head"],
+            vadd(N["head"], (0.11, 0, -0.01))],
+           [(0.058, 0.056), (0.096, 0.104), (0.100, 0.108), (0.052, 0.058)], faces)
+    # limbs: fixed-length lofts (shoulder/deltoid -> elbow -> wrist -> hand;
+    # hip -> knee -> ankle -> foot) with anatomical taper + joint bulges.
     for s in ("R", "L"):
         n = N[s]
-        m.sphere(n["sh"], 0.085, faces)
-        m.tube(n["sh"], n["el"], 0.070, 0.055, faces)
-        m.sphere(n["el"], 0.056, faces)
-        m.tube(n["el"], n["wr"], 0.052, 0.041, faces)
-        m.tube(n["wr"], n["hand"], 0.041, 0.030, faces)
-        m.sphere(n["hip"], 0.105, faces)
-        m.tube(n["hip"], n["kn"], 0.100, 0.068, faces)
-        m.sphere(n["kn"], 0.068, faces)
-        m.tube(n["kn"], n["ank"], 0.066, 0.047, faces)
-        m.sphere(n["ank"], 0.049, faces)
+        m.loft([n["sh"], n["el"], n["wr"], n["hand"]],
+               [(0.062, 0.062), (0.046, 0.046), (0.034, 0.032), (0.030, 0.020)],
+               faces)
+        m.loft([n["hip"], n["kn"], n["ank"], n["foot"]],
+               [(0.094, 0.094), (0.060, 0.060), (0.044, 0.042), (0.036, 0.026)],
+               faces)
     end("suit", fs, vs)
 
     # ---- (1) CFRP STRUCTURE ----
@@ -553,8 +651,10 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
         m.tube(vadd(node, (0, 0, 0.055)), vadd(node, (0, 0, -0.055)), r, r, faces)
         m.box(node, (0.055, 0.052, 0.042), faces)
     hs = half_span(prog)
-    awr = lerp(0.24, 0.98, prog["spread"])
-    awk = lerp(0.20, 0.92, prog["spread"])
+    # boom roots start at the FIXED-length wrist/ankle hubs (fall out of the FK,
+    # NOT a stretched span); the booms cover wrist/ankle -> tip.
+    awr = abs(N["R"]["wr"][1])
+    awk = abs(N["R"]["ank"][1])
     for s in ("R", "L"):
         sgn = 1.0 if s == "R" else -1.0
         n = N[s]
@@ -826,7 +926,11 @@ def make_material(name, color, metallic=0.0, roughness=0.5, alpha=1.0,
         bsdf.inputs["Emission Strength"].default_value = 2.5
     if alpha < 1.0:
         bsdf.inputs["Alpha"].default_value = alpha
-        mat.blend_method = "BLEND"
+        # Blender 4.2+/EEVEE-Next replaced blend_method with surface_render_method
+        if hasattr(mat, "surface_render_method"):
+            mat.surface_render_method = "BLENDED"
+        else:
+            mat.blend_method = "BLEND"
         if hasattr(mat, "show_transparent_back"):
             mat.show_transparent_back = False
     if vcol:

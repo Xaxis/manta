@@ -51,13 +51,19 @@ hip yokes spread over Phase A; the wrist + ankle tip booms telescope out over
 Phase B). That schedule drives the wing's open fraction.
 
 The vehicle is built from the **locked planform** (BRIEF #5: `S = 8.4 m²`,
-`b = 7.4 m`, `AR = 6.5`, `25°` LE sweep, taper `0.4`, `5°` washout) as **ONE
+`b = 7.4 m`, `AR = 6.5`, `25°` LE sweep, taper `0.4`, `6°` washout) as **ONE
 continuous cambered wing surface, tip-to-tip** — so the skin is continuous
 across the body and the region between the legs, exactly like a rigid wing or a
-paraglider canopy. The pilot is the fuselage, embedded under the translucent
-tensioned skin, with arms along the leading-edge spar and legs along the
-trailing-edge spar (BRIEF #2). Every BRIEF component is modelled as a named
-material slot:
+paraglider canopy.
+
+The pilot is a **fixed-proportion, rigid-size human** (NASA-STD-3000 / ANSUR II
+segment lengths) and **never stretches**. Deployment runs forward kinematics
+(`_pilot_fk`): the limbs only *rotate* about the shoulder/hip with **constant
+bone lengths** (upper arm 0.32 m, forearm 0.27 m, thigh 0.43 m, shank 0.42 m) —
+arms angle forward-out toward the LE, legs aft-out forming the **rear/tail**.
+The full 7.4 m span beyond the pilot's ~0.76 m wrist reach is provided by the
+**3-stage telescoping booms**, not by growing the limbs. Every BRIEF component
+is modelled as a named material slot:
 
 | slot | parts |
 |---|---|
