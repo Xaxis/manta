@@ -31,6 +31,10 @@ type Flight = { V: number; gamma: number; psi: number; phi: number; alpha: numbe
 
 const d2r = THREE.MathUtils.degToRad, r2d = THREE.MathUtils.radToDeg, clamp = THREE.MathUtils.clamp, mlerp = THREE.MathUtils.lerp;
 const ALT0 = 220, TSIZE = 9000, TSEG = 160, SKY_FOG = new THREE.Color("#aac4e6");
+// chase camera: sits behind + above, heading-relative, so it stays behind a
+// turning craft; smooth time-constant follow.
+const CHASE_BACK = 20, CHASE_UP = 6.5, CHASE_TAU = 0.18;
+const _fwd = new THREE.Vector3(), _desired = new THREE.Vector3(), _look = new THREE.Vector3();
 
 // ---- procedural terrain height (shared by mesh + ground-contact) ----
 function thash(x: number, z: number) { const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return s - Math.floor(s); }
@@ -128,7 +132,7 @@ function MantaModel({ flyRef, flying, flightRef, inputRef, control, deployRef, f
   const flowMat = useMemo(() => makeFlowMaterial(), []);
   const craft = useRef<THREE.Group>(null);
   const attitude = useRef<THREE.Group>(null);
-  const { camera, scene, controls } = useThree() as any;
+  const { camera, scene } = useThree() as any;
 
   const { mixer, duration, parts, morphs } = useMemo(() => {
     const mx = new THREE.AnimationMixer(gltf.scene);
@@ -162,14 +166,15 @@ function MantaModel({ flyRef, flying, flightRef, inputRef, control, deployRef, f
       flightRef.current = freshFlight(control?.model);
       scene.fog = new THREE.Fog(SKY_FOG, 120, 3200);
       scene.background = null;
-      if (controls) { controls.maxDistance = 260; controls.minDistance = 8; controls.autoRotate = false; controls.target.set(0, ALT0, 0); }
-      // near/far must bracket the craft (~20 m away) AND the sky dome (20 km)
-      camera.position.set(-22, ALT0 + 8, 12); camera.near = 1; camera.far = 30000; camera.updateProjectionMatrix();
+      // start the chase camera behind + above the craft (it starts at psi=0,
+      // facing +x, at the origin / ALT0). near/far bracket craft + sky dome.
+      camera.position.set(-CHASE_BACK, ALT0 + CHASE_UP, 0);
+      camera.lookAt(0, ALT0, 0);
+      camera.near = 1; camera.far = 30000; camera.updateProjectionMatrix();
     } else {
       scene.fog = null; scene.background = new THREE.Color("#070809");
       if (craft.current) { craft.current.position.set(0, 0, 0); craft.current.rotation.set(0, 0, 0); }
       if (attitude.current) attitude.current.rotation.set(0, 0, 0);
-      if (controls) { controls.maxDistance = 24; controls.minDistance = 2; controls.target.set(0, 0, 0); }
       camera.position.set(4.2, 2.4, 5.2); camera.near = 0.05; camera.far = 80; camera.updateProjectionMatrix();
     }
   }, [flying]); // eslint-disable-line
@@ -193,9 +198,13 @@ function MantaModel({ flyRef, flying, flightRef, inputRef, control, deployRef, f
         set("ctrl_rollL", Math.max(0, -ri)); set("ctrl_rollR", Math.max(0, ri));
         set("ctrl_pitchU", Math.max(0, pi)); set("ctrl_pitchD", Math.max(0, -pi));
       });
-      if (controls) { controls.target.lerp(craft.current!.position, 0.5); controls.update(); }
+      // chase camera: stay behind + above, heading-relative, smooth follow
+      const cp = craft.current!.position;
+      _fwd.set(Math.cos(f.psi), 0, -Math.sin(f.psi));
+      _desired.copy(cp).addScaledVector(_fwd, -CHASE_BACK); _desired.y += CHASE_UP;
+      camera.position.lerp(_desired, 1 - Math.exp(-dt / CHASE_TAU));
+      camera.lookAt(_look.set(cp.x, cp.y + 1.2, cp.z));
     } else {
-      const total = control ? control.deploy_frames : 40;
       mixer.setTime(clamp(deployRef.current, 0, 1) * duration);
     }
   });
@@ -241,8 +250,11 @@ function Scene(props: {
           <gridHelper args={[14, 28, "#1a3a8e", "#1d2230"]} position={[0, -1.05, 0]} />
         </>
       )}
-      <OrbitControls makeDefault enableDamping dampingFactor={0.06} autoRotate={!props.flying}
-        autoRotateSpeed={0.5} minDistance={2.0} maxDistance={24} target={[0, 0, 0]} />
+      {/* OrbitControls only for inspection; flight uses the chase camera */}
+      {!props.flying && (
+        <OrbitControls makeDefault enableDamping dampingFactor={0.06} autoRotate
+          autoRotateSpeed={0.5} minDistance={2.0} maxDistance={24} target={[0, 0, 0]} />
+      )}
     </>
   );
 }
