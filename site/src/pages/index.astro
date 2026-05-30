@@ -42,7 +42,7 @@ import Viewer from "../components/viewer/Viewer.tsx";
     id="model"
     eyebrow="Live deployment"
     title="Deploy it — then actually fly it."
-    intro="Drag to orbit. Scrub the slider through the deployment, or hit Play (Phase A: fixed-length limbs rotate out; Phase B: CO₂ telescopes the booms to full span). Then hit ‘Fly it’ and steer with the keyboard — ← → roll, ↑ ↓ pitch. A real reduced-order flight model runs in your browser: the equations of motion integrate airspeed, bank, load factor and angle-of-attack live, the flaperons deflect and the pilot weight-shifts as you input, and the α-limiter clamps the AoA so you can't stall it. ‘Flow field’ shows the surface pressure + streamlines."
+    intro="Drag to orbit. Scrub the slider through the deployment, or hit Play (Phase A: fixed-length limbs rotate out; Phase B: CO₂ telescopes the booms to full span). Then hit ‘Fly it’ and steer with the keyboard — ← → roll, ↑ ↓ pitch — to actually fly it over procedural terrain under a sky. A real reduced-order flight model runs in your browser: the equations of motion integrate airspeed, bank, load factor and angle-of-attack live, the flaperons deflect and the pilot weight-shifts as you input, the craft banks into turns and glides down toward the hills, and the α-limiter clamps the AoA so you can't stall it. ‘Flow field’ shows the surface pressure + streamlines."
   >
     <div class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-950">
       <Viewer client:only="react" height={620} />
