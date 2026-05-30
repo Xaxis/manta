@@ -50,11 +50,13 @@ Outputs: `out/flight_dynamics.png` (six-panel trace), `out/telemetry.json`
 hip yokes spread over Phase A; the wrist + ankle tip booms telescope out over
 Phase B). That schedule drives the wing's open fraction.
 
-The vehicle is built from the **locked planform** (BRIEF #5: `S = 8.4 m²`,
-`b = 7.4 m`, `AR = 6.5`, `25°` LE sweep, taper `0.4`, `6°` washout) as **ONE
-continuous cambered wing surface, tip-to-tip** — so the skin is continuous
-across the body and the region between the legs, exactly like a rigid wing or a
-paraglider canopy.
+The vehicle is built from the **resized planform** (BRIEF #5: `S = 6.5 m²`,
+`b = 6.3 m`, `AR = 6.1`, `25°` LE sweep, taper `0.4`, `6°` washout — downsized
+from 8.4 m²/7.4 m since MANTA lands under reserve) as a **double-surface
+cambered wing, tip-to-tip**: an upper deployed skin + a lower wingsuit membrane
+meeting at the LE/TE, with the pilot + telescoping spars INSIDE the airfoil — a
+ram-air/paraglider-style closed section, continuous across the body and between
+the legs.
 
 The pilot is a **fixed-proportion, rigid-size human** (NASA-STD-3000 / ANSUR II
 segment lengths) and **never stretches**. Deployment runs forward kinematics

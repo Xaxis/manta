@@ -66,15 +66,15 @@ import Viewer from "../components/viewer/Viewer.tsx";
     intro="Wing planform is independent of mounting; the aero analyses still hold. Mass, structural, and packaging numbers updated for the corrected architecture."
   >
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      <MetricCard label="Wing area" value="8.4" unit="m²" note="Both sides; locked from BRIEF." />
-      <MetricCard label="Span" value="7.4" unit="m" note="Aspect ratio 6.52, taper 0.4, sweep 25°, washout 6°." />
-      <MetricCard label="CL_α (3D, Weissinger)" value="4.24" unit="/rad" note="≈ 0.074 /deg. Helmbold cross-checked." />
-      <MetricCard label="Static margin (design CL)" value="5.4 %" unit="MAC" note="Top-of-BRIEF-range washout." />
-      <MetricCard label="(L/D)ₘₐₓ" value="12.0" note="At V ≈ 16 m/s, nominal body CdA = 0.20 m²." />
+      <MetricCard label="Wing area" value="6.5" unit="m²" note="Resized down from 8.4 m² — lands under reserve, so a low stall speed isn't required." />
+      <MetricCard label="Span" value="6.3" unit="m" note="Aspect ratio 6.11, taper 0.4, sweep 25°, washout 6°." />
+      <MetricCard label="CL_α (3D, Weissinger)" value="4.17" unit="/rad" note="≈ 0.073 /deg. Helmbold cross-checked." />
+      <MetricCard label="Static margin (design CL)" value="5.6 %" unit="MAC" note="At the trim washout." />
+      <MetricCard label="(L/D)ₘₐₓ" value="11.6" note="At V ≈ 18 m/s, nominal body CdA = 0.20 m²." />
       <MetricCard label="Stowed thickness off body" value="87" unit="mm" tone="good" note="Within BRIEF target (< 150 mm). Dominated by spine yoke OD; structure runs along arms/legs, not on top of the rig." />
       <MetricCard label="Deployment time" value="≈ 0.6" unit="s" note="Phase A arm spread + Phase B tip-extension + Phase D skin tension." />
       <MetricCard label="LE spar root OD" value="62" unit="mm" note="Along-arm spar; slightly downsized from the 73 mm bending-sized aircraft-style root because the load path is different." />
-      <MetricCard label="Wrist tip extension" value="3.30" unit="m" note="3-stage telescoping CFRP; CO₂-driven." />
+      <MetricCard label="Wrist tip extension" value="2.40" unit="m" note="3-stage telescoping CFRP; CO₂-driven. Shorter boom after the resize." />
       <MetricCard label="Symmetry 3-σ |Δt|" value="16.3" unit="ms" tone="warn" note="vs. BRIEF 10 ms gate — locked architecture FAILS. Active modulation closes it at 8.1 ms." />
       <MetricCard label="Pilot 50 mm CG shift" value="3.26 %" unit="MAC" tone="warn" note="≈ entire static margin. Alpha limiter mandatory." />
       <MetricCard label="Tests" value="27 / 27" tone="good" note="Across analysis/ and fcs/. make test reproduces locally." />

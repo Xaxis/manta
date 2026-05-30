@@ -42,10 +42,13 @@ of sporting goods. Treat it as such.
 4. **DCF skin.** ~50 g/m², bonded to ribs and to the harness body
    panels, tensioned by full deployment of the structure.
 
-5. **Wing planform — locked.** S = 8.4 m², b = 7.4 m, AR = 6.5,
-   25° LE sweep, taper ratio 0.4, 6° tip washout (top-of-BRIEF range
-   per the trim study). Geometry is independent of integration; the
-   aero analyses in `analysis/aero/` apply unchanged.
+5. **Wing planform — resized (finding #5).** S = 6.5 m², b = 6.3 m,
+   AR = 6.1, 25° LE sweep, taper ratio 0.4, 6° tip washout. Downsized
+   from the original 8.4 m² / 7.4 m: because MANTA lands under a reserve
+   canopy (not on the wing), a low stall speed is not required, which
+   frees the wing to shrink for a far more feasible ~2.4 m telescoping
+   boom while holding the glide target (L/D ≈ 11.6 at V_bg ≈ 18 m/s).
+   Source of truth: `analysis/aero/planform/geometry.py`.
 
 6. **Deployment sequence (~0.6 s end-to-end):**
    - **Phase A (~0.3 s):** pilot extends arms and legs outward from
@@ -89,15 +92,14 @@ of sporting goods. Treat it as such.
 
 ## Performance targets
 
-- Glide ratio: 10:1 design target, 13:1 stretch (vs. 3:1 wingsuit, 16:1 hang glider)
-- Best-glide airspeed: ~16 m/s (per the glide-polar analysis — see
-  finding #1 in the open issues)
-- Stall speed: under 14 m/s
+- Glide ratio: 10:1 design target, ~12:1 stretch (vs. 3:1 wingsuit, 16:1 hang glider)
+- Best-glide airspeed: ~18 m/s (per the glide-polar analysis, resized planform)
+- Stall speed: ~15-16 m/s (relaxed — landing is under reserve canopy, not the wing)
 - Pilot mass envelope: 70-95 kg
-- Wing area: 8.4 m²
-- Span: 7.4 m deployed
-- Aspect ratio: 6.5
-- Wing loading: ~12 kg/m² (with structurally-correct mass per finding #2)
+- Wing area: 6.5 m²
+- Span: 6.3 m deployed
+- Aspect ratio: 6.1
+- Wing loading: ~16.6 kg/m² (163 N/m²; structurally-correct mass per finding #2)
 - Wing system mass budget: ~16.5 kg (per the bending-sized spar — see
   finding #2)
 - Stowed package thickness (off body): TBD per the new architecture;

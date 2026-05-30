@@ -61,9 +61,12 @@ SITE_MODELS = _HERE.parent / "site" / "public" / "models" / "v3"
 SPAN_LOADING_CSV = (_HERE.parent / "analysis" / "aero" / "weissinger" /
                     "out" / "span_loading.csv")
 
-# ---- Locked planform (BRIEF #5) -------------------------------------------
-PLAN_S = 8.4
-PLAN_B = 7.4
+# ---- Planform — resized to the moderate B option (6.3 m / 6.5 m^2, AR 6.1) --
+# Downsized from the BRIEF v2 8.4 m^2 / 7.4 m because MANTA lands under reserve
+# (low stall speed not required), so a smaller wing holds the glide target with
+# a far more feasible ~2.4 m telescoping boom. Source of truth: geometry.py.
+PLAN_S = 6.5
+PLAN_B = 6.3
 PLAN_TAPER = 0.4
 PLAN_SWEEP_DEG = 25.0
 PLAN_WASHOUT_DEG = 6.0          # BRIEF #5 locks 6 deg tip washout

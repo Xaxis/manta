@@ -385,7 +385,7 @@ export default function Viewer({ height = 620 }: { height?: number }) {
       </div>
 
       <div className="absolute bottom-[3.4rem] left-3 text-[10px] text-zinc-600">
-        morph-target animation · locked planform (S 8.4 m² · b 7.4 m · AR 6.5) · drag orbit · scroll zoom
+        morph-target animation · planform S 6.5 m² · b 6.3 m · AR 6.1 · double-surface wing · drag orbit · scroll zoom
       </div>
     </div>
   );

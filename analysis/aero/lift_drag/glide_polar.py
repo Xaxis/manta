@@ -34,12 +34,15 @@ _ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_ROOT))
 
 from analysis.aero.lift_drag.cd0 import Cd0Buildup  # noqa: E402
+from analysis.aero.planform.geometry import Planform  # noqa: E402
+
+_PLAN = Planform()
 
 
 @dataclass
 class GlideConfig:
-    S: float = 8.4
-    AR: float = 6.519
+    S: float = _PLAN.S                # from the single source of truth
+    AR: float = _PLAN.aspect_ratio
     e: float = 0.95
     rho: float = 1.225          # ISA sea level
     g: float = 9.80665
