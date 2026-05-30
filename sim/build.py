@@ -748,53 +748,62 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
            [(0.054, 0.052), (0.076, 0.082), (0.078, 0.084), (0.040, 0.046)], faces)
     end("helmet", fs, vs)
 
-    # ---- (1) CFRP STRUCTURE ----
+    # ---- (1) CFRP STRUCTURE — the real load path + deploy mechanism (BRIEF #2)
+    # LE spar is bonded along the UNDERSIDE of the arm (shoulder hinge -> wrist
+    # hub); a 3-stage CFRP boom TELESCOPES out of the wrist hub to the wingtip.
+    # Mirror along the leg -> ankle hub -> TE boom. Everything sits just under
+    # the limb (inside the fabric) so nothing pierces the body.
     fs, vs = _begin(faces, m)
-    shoulder_yoke = vadd(N["torso_up"], (0, 0, 0.13))
-    hip_yoke = vadd(N["hip_mid"], (0, 0, 0.11))
+    shoulder_yoke = vadd(N["torso_up"], (0, 0, 0.125))
+    hip_yoke = vadd(N["hip_mid"], (0, 0, 0.105))
     sx = vnorm(vsub(hip_yoke, shoulder_yoke))
     sz = vnorm(vsub((0, 0, 1.0), vscale(sx, vdot((0, 0, 1.0), sx))))
     sy = vnorm(vcross(sx, sz))
     m.box(vlerp(shoulder_yoke, hip_yoke, 0.5),
-          (vlen(vsub(hip_yoke, shoulder_yoke)) * 0.5, 0.045, 0.030),
+          (vlen(vsub(hip_yoke, shoulder_yoke)) * 0.5, 0.042, 0.026),
           faces, axis=(sx, sy, sz))
-    for node, r in ((N["R"]["sh"], 0.045), (N["L"]["sh"], 0.045),
-                    (N["R"]["hip"], 0.050), (N["L"]["hip"], 0.050)):
-        # pivot hub: vertical pin + a knuckle/clevis housing bridging the
-        # spine yoke to the spar root (the hinge the BRIEF calls out)
-        m.tube(vadd(node, (0, 0, 0.055)), vadd(node, (0, 0, -0.055)), r, r, faces)
-        m.box(node, (0.055, 0.052, 0.042), faces)
     hs = half_span(prog)
-    # The spars run INSIDE the airfoil (aft of the LE / fwd of the TE, on the
-    # chord line, between the two fabric surfaces) — they are the structure that
-    # guides the wing out and tensions the fabric into the lifting shape, like a
-    # paraglider's internal battens. The pilot's arm/leg lies alongside each
-    # spar (BRIEF #2). 3 telescoping stages root -> tip.
-    in_le = (-0.06, 0, 0.0)        # aft of LE on the chord line => inside fabric
-    in_te = (0.06, 0, 0.0)         # fwd of TE => inside fabric
+    below = (0.0, 0.0, -0.05)       # spar bonded to the underside of the limb
+    in_le = (-0.04, 0, 0.0)         # boom just inside the leading edge
+    in_te = (0.04, 0, 0.0)          # boom just inside the trailing edge
+
+    def boom(root, nodes, radii):
+        prev = root
+        for nd, (r0, r1) in zip(nodes, radii):
+            m.tube(prev, nd, r0, r1, faces)
+            prev = nd
+
     for s in ("R", "L"):
         sgn = 1.0 if s == "R" else -1.0
         n = N[s]
-        # LE spar: riser from the shoulder hub up into the wing, then 3 stages
-        le0 = vadd(le_point(sgn * SHOULDER_HALF), in_le)
-        m.tube(n["sh"], le0, 0.030, 0.028, faces)
-        le_nodes = [le0,
-                    vadd(le_point(sgn * lerp(SHOULDER_HALF, hs, 1 / 3)), in_le),
-                    vadd(le_point(sgn * lerp(SHOULDER_HALF, hs, 2 / 3)), in_le),
-                    vadd(le_point(sgn * hs), in_le)]
-        rle = [(0.036, 0.026), (0.024, 0.018), (0.015, 0.011)]
-        for k in range(3):
-            m.tube(le_nodes[k], le_nodes[k + 1], rle[k][0], rle[k][1], faces)
-        # TE spar: riser from the hip hub, then 3 stages along the trailing edge
-        te0 = vadd(te_point(sgn * HIP_HALF, prog), in_te)
-        m.tube(n["hip"], te0, 0.028, 0.026, faces)
-        te_nodes = [te0,
-                    vadd(te_point(sgn * lerp(HIP_HALF, hs, 1 / 3), prog), in_te),
-                    vadd(te_point(sgn * lerp(HIP_HALF, hs, 2 / 3), prog), in_te),
-                    vadd(te_point(sgn * hs, prog), in_te)]
-        rte = [(0.030, 0.021), (0.019, 0.014), (0.013, 0.010)]
-        for k in range(3):
-            m.tube(te_nodes[k], te_nodes[k + 1], rte[k][0], rte[k][1], faces)
+        # shoulder + hip hinge knuckles (spar pivots at the spine yoke)
+        m.box(n["sh"], (0.058, 0.05, 0.05), faces)
+        m.tube(vadd(n["sh"], (0, sgn * 0.055, 0)), vadd(n["sh"], (0, -sgn * 0.04, 0)), 0.024, 0.024, faces)
+        m.box(n["hip"], (0.058, 0.055, 0.05), faces)
+        # LE spar bonded under the arm -> wrist
+        m.tube(vadd(n["sh"], below), vadd(n["el"], below), 0.028, 0.024, faces)
+        m.tube(vadd(n["el"], below), vadd(n["wr"], below), 0.024, 0.020, faces)
+        # WRIST HUB: the telescoping boom mounts + pivots here
+        m.tube(vadd(n["wr"], (0.045, 0, -0.015)), vadd(n["wr"], (-0.045, 0, -0.06)), 0.036, 0.032, faces)
+        # LE boom: 3 nested telescoping stages, wrist hub -> LE tip. Retracted
+        # (nested at the wrist) in Phase A, extends as hs grows in Phase B.
+        wy = abs(n["wr"][1])
+        boom(vadd(n["wr"], below),
+             [vadd(le_point(sgn * lerp(wy, hs, 1 / 3)), in_le),
+              vadd(le_point(sgn * lerp(wy, hs, 2 / 3)), in_le),
+              vadd(le_point(sgn * hs), in_le)],
+             [(0.026, 0.022), (0.020, 0.016), (0.014, 0.010)])
+        # TE spar bonded under the leg -> ankle
+        m.tube(vadd(n["hip"], below), vadd(n["kn"], below), 0.026, 0.022, faces)
+        m.tube(vadd(n["kn"], below), vadd(n["ank"], below), 0.022, 0.018, faces)
+        # ANKLE HUB + TE boom (3 stages, ankle hub -> TE tip)
+        m.tube(vadd(n["ank"], (0.045, 0, -0.015)), vadd(n["ank"], (-0.045, 0, -0.055)), 0.032, 0.028, faces)
+        ay = abs(n["ank"][1])
+        boom(vadd(n["ank"], below),
+             [vadd(te_point(sgn * lerp(ay, hs, 1 / 3), prog), in_te),
+              vadd(te_point(sgn * lerp(ay, hs, 2 / 3), prog), in_te),
+              vadd(te_point(sgn * hs, prog), in_te)],
+             [(0.024, 0.020), (0.018, 0.014), (0.012, 0.009)])
     end("cfrp", fs, vs)
 
     # ---- (2) WING — double surface: upper deployed skin + lower wingsuit ----
@@ -832,9 +841,9 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
             m.rib(y, prog, rib_loop, t_rib, 0.006, faces)
     end("rib", fs, vs)
 
-    # ---- (4) RESERVE CONTAINER (on the back, above the spine yoke) ----
+    # ---- (4) RESERVE CONTAINER (sits ON the back, above the spine yoke) ----
     fs, vs = _begin(faces, m)
-    m.box(vadd(N["torso_up"], (-0.05, 0, 0.16)), (0.15, 0.12, 0.065), faces)
+    m.box(vadd(N["torso_up"], (-0.06, 0, 0.215)), (0.15, 0.12, 0.06), faces)
     end("reserve", fs, vs)
 
     # ---- (5) FCS BAY ----
@@ -877,14 +886,18 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
         m.tube(b0, b1, 0.032, 0.032, faces)
         m.sphere(b1, 0.033, faces)
         m.tube(b0, vadd(b0, (0.05, 0, 0)), 0.012, 0.010, faces)   # valve stem
-        m.tube(vadd(b0, (0.05, 0, 0)), n["wr"], 0.006, 0.006, faces)  # feed line
-        # pneumatic actuator: spine yoke -> spar (drives the sweep in Phase A)
-        m.tube(shoulder_yoke, n["el"], 0.020, 0.016, faces)
-        m.tube(hip_yoke, n["kn"], 0.020, 0.016, faces)
-        # tip-hub fittings
-        for hub in (n["wr"], n["ank"]):
-            m.tube(vadd(hub, (0.04, 0, 0.01)), vadd(hub, (-0.04, 0, 0.01)),
-                   0.015, 0.015, faces)
+        # feed line routed to the wrist hub (CO2 drives the boom telescope)
+        m.tube(vadd(b0, (0.05, 0, 0)), vadd(n["wr"], below), 0.006, 0.006, faces)
+        # short pneumatic actuator across each spar hinge (drives Phase-A sweep)
+        m.tube(shoulder_yoke, vadd(n["sh"], below), 0.018, 0.015, faces)
+        m.tube(hip_yoke, vadd(n["hip"], below), 0.018, 0.015, faces)
+        # cuffs: bands that strap the arm/leg to the spar (BRIEF #2 bonded sleeve)
+        def cuff(a, b_, frac):
+            c = vadd(vlerp(a, b_, frac), (0, 0, -0.022))
+            d = vnorm(vsub(b_, a))
+            m.tube(vadd(c, vscale(d, -0.02)), vadd(c, vscale(d, 0.02)), 0.078, 0.078, faces)
+        cuff(n["sh"], n["el"], 0.6); cuff(n["el"], n["wr"], 0.5)
+        cuff(n["hip"], n["kn"], 0.6); cuff(n["kn"], n["ank"], 0.5)
     end("metal", fs, vs)
 
     return m.verts

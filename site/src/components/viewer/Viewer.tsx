@@ -157,7 +157,7 @@ function MantaModel({ flyRef, flying, flightRef, inputRef, control, deployRef, f
   useEffect(() => {
     if (parts.pressure) parts.pressure.visible = flowMode;
     if (parts.flow) parts.flow.visible = flowMode;
-    parts.skinMats.forEach((sm) => { sm.transparent = true; sm.opacity = flowMode ? 0.06 : 0.32; sm.needsUpdate = true; });
+    parts.skinMats.forEach((sm) => { sm.transparent = true; sm.depthWrite = false; sm.needsUpdate = true; });
   }, [flowMode, parts]);
 
   // entering / leaving flight: world placement, fog, sky background, camera
@@ -184,6 +184,10 @@ function MantaModel({ flyRef, flying, flightRef, inputRef, control, deployRef, f
   useFrame((_, dtRaw) => {
     flowMat.uniforms.uTime.value += dtRaw;
     const dt = Math.min(dtRaw, 0.05);
+    // skin tensions on LAST: transparent while deploying so you can watch the
+    // booms telescope from the wrist/ankle hubs + the ribs snap, then it sets.
+    const skinOp = flowMode ? 0.05 : flyRef.current ? 0.34 : mlerp(0.06, 0.36, clamp(deployRef.current, 0, 1) ** 1.5);
+    parts.skinMats.forEach((sm) => { sm.opacity = skinOp; });
     if (flyRef.current && control) {
       stepFlight(flightRef.current, control.model, inputRef.current.roll, inputRef.current.pitch, dt);
       const f = flightRef.current;
