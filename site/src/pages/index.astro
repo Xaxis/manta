@@ -8,7 +8,7 @@ import Viewer from "../components/viewer/Viewer.tsx";
 
 <Base>
   <!-- Hero -->
-  <header class="relative overflow-hidden">
+  <header id="top" class="relative overflow-hidden scroll-mt-20">
     <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,138,61,0.10),transparent_55%)]"></div>
     <div class="relative mx-auto max-w-6xl px-6 pt-20 pb-14 md:pt-32 md:pb-20">
       <p class="text-xs uppercase tracking-[0.22em] text-orange-400/80">Project MANTA</p>
@@ -25,7 +25,7 @@ import Viewer from "../components/viewer/Viewer.tsx";
       <div class="mt-8 flex flex-wrap gap-3">
         <a href="https://github.com/Xaxis/manta" class="inline-flex items-center gap-2 rounded-md bg-orange-500/90 hover:bg-orange-500 px-5 py-2.5 text-sm font-medium text-zinc-950 transition">Source on GitHub →</a>
         <a href="https://github.com/Xaxis/manta/blob/main/BRIEF.md" class="inline-flex items-center gap-2 rounded-md border border-zinc-700 hover:border-zinc-500 px-5 py-2.5 text-sm font-medium text-zinc-200 transition">Read the BRIEF</a>
-        <a href="#viewer" class="inline-flex items-center gap-2 rounded-md border border-zinc-800 hover:border-zinc-600 px-5 py-2.5 text-sm text-zinc-400 transition">Watch deployment</a>
+        <a href="#model" class="inline-flex items-center gap-2 rounded-md border border-zinc-800 hover:border-zinc-600 px-5 py-2.5 text-sm text-zinc-400 transition">Watch deployment</a>
       </div>
 
       <figure class="mt-12 rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
@@ -39,7 +39,7 @@ import Viewer from "../components/viewer/Viewer.tsx";
 
   <!-- Interactive viewer -->
   <Section
-    id="viewer"
+    id="model"
     eyebrow="Live deployment"
     title="The structure deploys with the pilot."
     intro="Drag to orbit. Use the slider to scrub through the deployment sequence, or hit Play. Phase A (~0.3 s): pilot extends arms and legs from a tucked posture; the spine yoke locks the LE spars at the deployed sweep angle. Phase B (~0.1 s): CO₂ fires; telescoping wrist + ankle tip extensions snap out simultaneously. Phase D (passive): wing skin tensions across the structure."
@@ -133,6 +133,7 @@ import Viewer from "../components/viewer/Viewer.tsx";
 
   <!-- Aero -->
   <Section
+    id="aero"
     eyebrow="Deliverable #1"
     title="Aerodynamics"
     intro="Pure-Python lifting-line, validated against Helmbold (rectangular AR=8: −3.4 %), feeds trim, glide polar, and the parametric wing OML. Wing planform is independent of how it integrates with the pilot — these numbers carry over from BRIEF v1 unchanged."
@@ -157,6 +158,7 @@ import Viewer from "../components/viewer/Viewer.tsx";
 
   <!-- Structures -->
   <Section
+    id="structures"
     eyebrow="Deliverables #2 + #3"
     title="Structures"
     intro="Bending analysis uses Weissinger output as the loading shape. The cantilever load path in the new architecture is from wingtip → telescoping booms → wrist hub → along-arm LE spar → shoulder yoke → spine. Bending magnitudes carry over; the path is shorter and the moment is reacted by the spine yoke rather than a sub-frame."
@@ -176,6 +178,7 @@ import Viewer from "../components/viewer/Viewer.tsx";
 
   <!-- Deployment -->
   <Section
+    id="deployment"
     eyebrow="Deliverables #4 + #5"
     title="Deployment + symmetry budget"
     intro="State machine implements every gate and abort path; 50,000-trial Monte Carlo characterizes the symmetry budget. The CO₂ contributor dominates and busts the 10 ms 3-σ BRIEF gate alone."
@@ -199,6 +202,7 @@ import Viewer from "../components/viewer/Viewer.tsx";
 
   <!-- FCS -->
   <Section
+    id="fcs"
     eyebrow="FCS architecture"
     title="Alpha limiter — a structural design assumption."
     intro="Per BRIEF, the alpha limiter is treated as an invariant the structure depends on. Pilot CG perturbations alone can eat the static margin; without active envelope protection, a 50 mm posture shift can destabilize the wing. The shoulder/hip rotation against the locked spar gives the pilot a wingsuit-style direct control path that maps to alpha command."
