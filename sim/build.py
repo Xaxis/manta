@@ -3,13 +3,15 @@ MANTA — full mechanical build + aero-flow pipeline: MuJoCo deploy schedule ->
 a detailed, fully-articulated GLB (morph-animated deployment) + a baked aero
 field (surface pressure + streamlines) + Blender hero renders.
 
-This is a ground-up rebuild.  The previous versions were a stick-figure with a
-flat ruled membrane per side, no material between the legs, and no aerodynamic
-shape.  This version builds the LOCKED planform (BRIEF #5: S=8.4 m^2, b=7.4 m,
-AR 6.5, 25 deg LE sweep, taper 0.4, 6 deg washout) as ONE continuous,
-cambered, swept, tapered wing surface tip-to-tip -- so the wing is continuous
-across the body and the region between the legs, exactly like a real rigid wing
-or paraglider canopy.  The pilot is the fuselage, embedded under the
+This version builds the resized planform (BRIEF #5, finding #5: S=6.5 m^2,
+b=6.3 m, AR 6.1, 25 deg LE sweep, taper 0.4, 6 deg washout — downsized from
+8.4/7.4 since MANTA lands under reserve) as a DOUBLE-SURFACE cambered wing
+tip-to-tip (upper skin + lower wingsuit), continuous across the body and the
+region between the legs, like a rigid wing or paraglider canopy.  The pilot is
+the fuselage, centred in the airfoil thickness, with the spars inside the fabric
+and the legs forming the rear tail.  A control-demo animation drives the
+flaperons + pilot weight-shift from the real stability/control derivatives.
+Earlier notes below describe the build.  The pilot is embedded under the
 translucent tensioned skin, with arms running along the leading-edge spar and
 legs along the trailing-edge spar (BRIEF #2).
 
@@ -70,12 +72,12 @@ PLAN_B = 6.3
 PLAN_TAPER = 0.4
 PLAN_SWEEP_DEG = 25.0
 PLAN_WASHOUT_DEG = 6.0          # BRIEF #5 locks 6 deg tip washout
-HALF_SPAN_FULL = PLAN_B / 2.0                                  # 3.70 m
-CHORD_ROOT = 2.0 * PLAN_S / (PLAN_B * (1.0 + PLAN_TAPER))      # 1.622 m
-CHORD_TIP = PLAN_TAPER * CHORD_ROOT                            # 0.649 m
+HALF_SPAN_FULL = PLAN_B / 2.0                                  # 3.15 m
+CHORD_ROOT = 2.0 * PLAN_S / (PLAN_B * (1.0 + PLAN_TAPER))      # 1.474 m
+CHORD_TIP = PLAN_TAPER * CHORD_ROOT                            # 0.590 m
 TAN_SWEEP = math.tan(math.radians(PLAN_SWEEP_DEG))
-X_ROOT_LE = 0.95          # root leading-edge x (forward = +x); pilot head sits here
-Z_WING = 0.10             # wing reference plane height; pilot belly hangs below
+X_ROOT_LE = 0.95          # root leading-edge x (forward = +x)
+Z_WING = 0.10             # wing reference plane height
 AERO_ALPHA = 6.0          # nearest tabulated case to the settled glide alpha
 
 
@@ -143,7 +145,7 @@ JOINT_STOWED = {"sh_R_yaw": 0.05, "sh_L_yaw": -0.05,
 JOINT_DEPLOYED = {"sh_R_yaw": 0.62, "sh_L_yaw": -0.62,
                   "hip_R_yaw": -0.42, "hip_L_yaw": 0.42}
 
-N_FRAMES = 60
+N_FRAMES = 40
 DURATION_S = 0.6
 # Overlapping deploy schedule (s) spanning the full duration so the span grows
 # monotonically across all 60 frames (no mid-point velocity jump, no frozen
@@ -204,6 +206,59 @@ def run_simulation():
         frames.append(frames[-1])
     print(f"  sim: {len(frames)} frames over {DURATION_S} s")
     return {"duration_s": DURATION_S, "frames": frames}
+
+
+# =============================================================================
+# (1b) Flight-control demo — pilot inputs -> surfaces + weight-shift + attitude
+# =============================================================================
+# Shows HOW the pilot flies the deployed wing: a roll reversal then a pitch
+# flare.  The aileron/elevator commands and the load factor are derived from the
+# documented stability + control model (analysis/flightdynamics/, docs/04):
+#   * roll: differential flaperon, roll mode tau ~ 0.05-0.06 s (crisp)
+#   * pitch: symmetric flaperon (Cm_de ~ -1.2 /rad) + pilot weight-shift, the
+#     binding CG authority (a 50 mm shift ~ the whole static margin)
+#   * turn load factor n = 1/cos(bank)
+# The wing geometry per frame carries only the flaperon deflection + the pilot
+# weight-shift; the body's bank/pitch attitude is applied by the viewer from the
+# telemetry (keeps the morph deltas small).
+
+CONTROL_FRAMES = 24
+CONTROL_DURATION = 9.0          # s of the maneuver (display time)
+
+
+def _bank_pitch_deg(tc):
+    """Scheduled bank phi and pitch theta (deg) over the maneuver tc in [0,1]:
+    roll left, roll through to right, level out, then a pitch flare."""
+    if tc < 0.22:
+        return lerp(0.0, -32.0, smoothstep(tc / 0.22)), 0.0
+    if tc < 0.46:
+        return lerp(-32.0, 32.0, smoothstep((tc - 0.22) / 0.24)), 0.0
+    if tc < 0.60:
+        return lerp(32.0, 0.0, smoothstep((tc - 0.46) / 0.14)), 0.0
+    if tc < 0.80:
+        return 0.0, lerp(0.0, 13.0, smoothstep((tc - 0.60) / 0.20))
+    return 0.0, lerp(13.0, 0.0, smoothstep((tc - 0.80) / 0.20))
+
+
+def build_control_frames(t0):
+    """Geometry frames + telemetry for the control demo."""
+    frames, telem = [], []
+    for i in range(CONTROL_FRAMES):
+        tc = i / (CONTROL_FRAMES - 1)
+        phi, th = _bank_pitch_deg(tc)
+        phi2, _ = _bank_pitch_deg(min(tc + 1.0 / CONTROL_FRAMES, 1.0))
+        roll_rate = (phi2 - phi) * (CONTROL_FRAMES - 1) / CONTROL_DURATION   # deg/s
+        da = max(-1.0, min(1.0, roll_rate / 90.0))     # aileron from roll rate
+        de = th / 13.0                                  # elevator from flare
+        n_load = 1.0 / max(math.cos(math.radians(phi)), 0.30) + 0.9 * de
+        # pilot weight-shift: aft for the flare, toward the low wing for roll
+        lean = (-0.06 * de, -0.05 * math.sin(math.radians(phi)), 0.0)
+        frames.append({"t": t0 + 0.001 * (i + 1),
+                       "ctrl": {"da": da, "de": de, "lean": lean}})
+        telem.append({"tc": round(tc, 4), "bank": round(phi, 2),
+                      "pitch": round(th, 2), "roll_rate": round(roll_rate, 1),
+                      "da": round(da, 3), "de": round(de, 3), "n": round(n_load, 3)})
+    return frames, telem
 
 
 # =============================================================================
@@ -304,8 +359,9 @@ THIGH, SHANK, FOOT = 0.43, 0.42, 0.20
 TORSO_LEN = 0.52           # acromion -> hip
 NECK_LEN, HEAD_LEN = 0.10, 0.20   # head length ~0.20 m (50th-%ile male)
 X_SHOULDER = 0.45          # shoulder x (mid-chord); arms angle fwd to the LE
-Z_BODY = Z_WING - 0.02     # body sits INSIDE the airfoil thickness (belly = the
-                           # lower 'wingsuit' surface, back near the upper skin)
+Z_BODY = Z_WING + 0.03     # body centred in the airfoil thickness (belly ~ lower
+                           # 'wingsuit' surface, back ~ upper skin; slight bulge
+                           # both ways, since the torso is the fuselage)
 
 ARM_REACH = UPPER_ARM + FOREARM       # shoulder -> wrist (fixed)
 LEG_REACH = THIGH + SHANK             # hip -> ankle (fixed)
@@ -612,15 +668,17 @@ SLOTS = ["suit", "helmet", "cfrp", "skin", "wingsuit", "tail", "rib",
          "reserve", "fcs", "flaperon", "metal"]
 
 
-def _pilot_fk(prog):
+def _pilot_fk(prog, lean=(0.0, 0.0, 0.0)):
     """Forward kinematics for a FIXED-proportion pilot. Torso anchors never
     move; the limbs ROTATE about the shoulder/hip with FIXED bone lengths
     (no stretching) from a tucked pose (stowed) to a spread pose (deployed).
     Arms angle forward+out toward the LE; legs angle aft+out forming the
     rear/tail near the TE."""
     sp = prog["spread"]
-    sh_c = (X_SHOULDER, 0.0, Z_BODY)
-    hip_c = (X_SHOULDER - TORSO_LEN, 0.0, Z_BODY - 0.02)
+    # `lean` is the pilot's weight-shift for control (the binding CG authority):
+    # it offsets the whole body within the craft.
+    sh_c = vadd((X_SHOULDER, 0.0, Z_BODY), lean)
+    hip_c = vadd((X_SHOULDER - TORSO_LEN, 0.0, Z_BODY - 0.02), lean)
 
     def march(anchor, d_stow, d_dep, sgn, segs):
         d = vnorm(vlerp((d_stow[0], sgn * d_stow[1], d_stow[2]),
@@ -634,8 +692,8 @@ def _pilot_fk(prog):
 
     N = {}
     for side, sgn in (("R", 1.0), ("L", -1.0)):
-        sh = (X_SHOULDER, sgn * SHOULDER_HALF, Z_BODY)
-        hip = (X_SHOULDER - TORSO_LEN, sgn * HIP_HALF, Z_BODY - 0.02)
+        sh = vadd((X_SHOULDER, sgn * SHOULDER_HALF, Z_BODY), lean)
+        hip = vadd((X_SHOULDER - TORSO_LEN, sgn * HIP_HALF, Z_BODY - 0.02), lean)
         el, wr, hand = march(sh, ARM_DIR_STOW, ARM_DIR_DEP, sgn,
                              [UPPER_ARM, FOREARM, HAND])[1:]
         kn, ank, foot = march(hip, LEG_DIR_STOW, LEG_DIR_DEP, sgn,
@@ -648,7 +706,7 @@ def _pilot_fk(prog):
     N["hip_mid"] = hip_c
     # head rides higher so a recognisable head silhouette breaches the canopy
     N["neck"] = vadd(sh_c, (NECK_LEN * 0.6, 0, 0.07))
-    N["head"] = (X_SHOULDER + NECK_LEN + HEAD_LEN * 0.4, 0.0, Z_BODY + 0.11)
+    N["head"] = vadd((X_SHOULDER + NECK_LEN + HEAD_LEN * 0.4, 0.0, Z_BODY + 0.11), lean)
     return N
 
 
@@ -658,9 +716,12 @@ def _begin(faces, m):
 
 def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=None):
     m = Mesh()
-    prog = phase_progress(frame["t"])
+    # control frames hold the wing fully deployed and apply pilot weight-shift
+    # + flaperon deflection (the rest of the body banks via the viewer).
+    ctrl = frame.get("ctrl")
+    prog = DEPLOYED_PROG if ctrl else phase_progress(frame["t"])
     f0 = faces is not None
-    N = _pilot_fk(prog)
+    N = _pilot_fk(prog, lean=tuple(ctrl["lean"]) if ctrl else (0.0, 0.0, 0.0))
 
     def end(name, fs, vs):
         if f0:
@@ -801,12 +862,12 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
           (0.075, 0.055, 0.030), faces)
     end("fcs", fs, vs)
 
-    # ---- (6) FLAPERONS (outboard trailing edge; fold flat stowed) ----
+    # ---- (6) FLAPERONS (outboard TE) — symmetric elevator + diff aileron ----
     fs, vs = _begin(faces, m)
-    defl = math.radians(14) * prog["flap"]
-    # chord grows from ~0 (furled, no floating tab) to 0.16 m as the wing sets
+    base_defl = math.radians(14) * prog["flap"]
+    de = ctrl["de"] if ctrl else 0.0      # symmetric (pitch), normalised -1..1
+    da = ctrl["da"] if ctrl else 0.0      # differential (roll),  normalised -1..1
     chord = 0.16 * (0.03 + 0.97 * prog["flap"])
-    aft = (-chord * math.cos(defl), 0, -chord * math.sin(defl))
 
     def te_skin_pt(y):
         # the actual trailing-edge skin vertex (carries the washout twist +
@@ -816,6 +877,9 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
         return pts[N_CHORD - 1]
     for s in ("R", "L"):
         sgn = 1.0 if s == "R" else -1.0
+        # +de deflects both down (pitch); +da deflects right down / left up (roll)
+        d = base_defl + math.radians(18) * de + sgn * math.radians(22) * da
+        aft = (-chord * math.cos(d), 0, -chord * math.sin(d))
         pa, pb = te_skin_pt(sgn * 0.58 * hs), te_skin_pt(sgn * 0.92 * hs)
         m.panel(pa, pb, vadd(pb, aft), vadd(pa, aft), faces)
     end("flaperon", fs, vs)
@@ -1120,7 +1184,7 @@ def build_morph_object(traj):
         "helmet": make_material("helmet", (0.86, 0.88, 0.92), metallic=0.3, roughness=0.28),
         "cfrp": make_material("cfrp", (0.025, 0.025, 0.032), metallic=0.75, roughness=0.26),
         "skin": make_material("skin", (0.10, 0.34, 0.85), roughness=0.30, alpha=0.32),
-        "wingsuit": make_material("wingsuit", (0.09, 0.12, 0.20), roughness=0.7, alpha=0.62),
+        "wingsuit": make_material("wingsuit", (0.20, 0.21, 0.24), roughness=0.78, alpha=0.82),
         "tail": make_material("tail", (0.16, 0.44, 0.88), roughness=0.32, alpha=0.42),
         "rib": make_material("rib", (0.06, 0.07, 0.09), metallic=0.5, roughness=0.4),
         "reserve": make_material("reserve", (0.85, 0.30, 0.08), roughness=0.55),
@@ -1212,6 +1276,9 @@ def export_glb(objs):
     for o in objs:
         o.select_set(True)
     bpy.context.view_layer.objects.active = objs[0]
+    # (Draco was tried but the Blender exporter doesn't compress morph-target
+    # deltas — which dominate here — so it added a DRACOLoader dependency for no
+    # win. Size is kept down via the frame budget instead.)
     kwargs = dict(export_format="GLB", use_selection=True,
                   export_animations=True, export_morph=True,
                   export_morph_animation=True, export_yup=True,
@@ -1238,9 +1305,22 @@ def render_still(name, frame_idx, hide=()):
 
 def main():
     do_render = "--render" in sys.argv
-    print("(1) MuJoCo deployment schedule...")
+    print("(1) MuJoCo deployment schedule + flight-control demo...")
     traj = run_simulation()
+    deploy_n = len(traj["frames"])
+    ctrl_frames, ctrl_telem = build_control_frames(traj["duration_s"])
+    traj["frames"].extend(ctrl_frames)
+    traj["deploy_frames"] = deploy_n
+    traj["control_frames"] = len(ctrl_frames)
     (OUT_DIR / "trajectory.json").write_text(json.dumps(traj))
+    # control telemetry for the viewer (bank/pitch drive the craft attitude)
+    control_json = {"deploy_frames": deploy_n, "control_frames": len(ctrl_frames),
+                    "total_frames": len(traj["frames"]),
+                    "duration_s": CONTROL_DURATION, "series": ctrl_telem}
+    SITE_MODELS.mkdir(parents=True, exist_ok=True)
+    for p in (OUT_DIR / "control.json", SITE_MODELS / "control.json"):
+        p.write_text(json.dumps(control_json))
+    print(f"  {deploy_n} deploy + {len(ctrl_frames)} control frames")
 
     print("(2) Building Blender scene...")
     clear_scene(); build_world(); add_lights(); add_camera(); setup_renderer()
@@ -1275,7 +1355,15 @@ def main():
         render_still("hero_deployed", N_FRAMES - 1, hide=(pressure, flow))
         manta.hide_render = False
         render_still("hero_flow", N_FRAMES - 1)
-        # top-down planform check: full 7.4 m span on the wide axis, high + wide
+        # control-demo still: a left-banked turn (flaperons deflected + pilot
+        # weight-shift in the morph; the bank attitude applied as the object's
+        # roll, exactly as the viewer does it from the control telemetry).
+        cf = deploy_n + 10
+        bank = _bank_pitch_deg(10 / (CONTROL_FRAMES - 1))[0]
+        manta.rotation_euler = (math.radians(bank), 0, 0)
+        render_still("hero_control", cf, hide=(pressure, flow))
+        manta.rotation_euler = (0.0, 0.0, 0.0)
+        # top-down planform check: full span on the wide axis, high + wide
         # enough to frame both tips (span along image X via UP_X).
         cam = bpy.context.scene.camera
         cam.location = (-0.5, 0.0, 15.0)
