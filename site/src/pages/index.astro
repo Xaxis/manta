@@ -41,19 +41,19 @@ import Viewer from "../components/viewer/Viewer.tsx";
   <Section
     id="model"
     eyebrow="Live deployment"
-    title="The structure deploys with the pilot — then the pilot flies it."
-    intro="Drag to orbit. Scrub the slider through the deployment, or hit Play. Phase A: the pilot spreads arms + legs (fixed-length limbs that only rotate); Phase B: CO₂ telescopes the wrist + ankle booms out to the full span. Then hit ‘Fly it’ to watch the control demo — a roll reversal and a pitch flare, with the flaperons deflecting and the pilot weight-shifting, banked from the real stability + control derivatives. ‘Flow field’ shows the surface pressure + streamlines."
+    title="Deploy it — then actually fly it."
+    intro="Drag to orbit. Scrub the slider through the deployment, or hit Play (Phase A: fixed-length limbs rotate out; Phase B: CO₂ telescopes the booms to full span). Then hit ‘Fly it’ and steer with the keyboard — ← → roll, ↑ ↓ pitch. A real reduced-order flight model runs in your browser: the equations of motion integrate airspeed, bank, load factor and angle-of-attack live, the flaperons deflect and the pilot weight-shifts as you input, and the α-limiter clamps the AoA so you can't stall it. ‘Flow field’ shows the surface pressure + streamlines."
   >
     <div class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-950">
       <Viewer client:only="react" height={620} />
     </div>
     <p class="mt-3 text-xs text-zinc-500">
-      One fixed-topology morph animation baked by <code class="mono">sim/build.py</code>: a deployment pass + a flight-control pass. The deploy slider scrubs a real animation clock; ‘Fly it’ drives the flaperons + pilot weight-shift from the morph and banks the craft from <code class="mono">control.json</code> (derived from the documented stability/control derivatives). The pilot is a fixed-proportion human inside a double-surface airfoil; the spars run inside the fabric.
+      Baked by <code class="mono">sim/build.py</code>: a deployment morph plus four control-basis morph targets (roll L/R, pitch up/down) the viewer blends from your live input. The flight model in <code class="mono">control.json</code> uses the resized-planform aero and the documented stability/control derivatives (<code class="mono">analysis/flightdynamics/</code>, <code class="mono">docs/04</code>) — point-mass EOM with bank-to-turn + short-period AoA + the alpha-limiter. The pilot is a fixed-proportion human inside a double-surface airfoil; the spars run inside the fabric.
     </p>
     <figure class="mt-6 rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
-      <img src="/img/hero_control.png" alt="MANTA in a banked control input — flaperons deflected, pilot weight-shifted" class="w-full" />
+      <img src="/img/hero_control.png" alt="MANTA in a banked turn — flaperons deflected, pilot weight-shifted" class="w-full" />
       <figcaption class="px-4 py-2 text-xs text-zinc-500">
-        Flight-control demo: a banked turn. Differential flaperon for roll, symmetric flaperon + pilot weight-shift for pitch; bank/pitch attitude and the load factor n = 1/cos φ come from the stability + control model (<code class="mono">analysis/flightdynamics/</code>, <code class="mono">docs/04</code>). The pilot's 79%-of-mass body shift is the binding control authority the alpha-limiter is sized around.
+        A banked turn under pilot input: differential flaperon for roll, symmetric flaperon + pilot weight-shift for pitch; the load factor n = L/W and the turn rate g·tanφ/V fall out of the EOM. The pilot's 79%-of-mass body shift is the binding control authority the α-limiter is sized around.
       </figcaption>
     </figure>
     <figure class="mt-6 rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">

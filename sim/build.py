@@ -209,56 +209,37 @@ def run_simulation():
 
 
 # =============================================================================
-# (1b) Flight-control demo — pilot inputs -> surfaces + weight-shift + attitude
+# (1b) Flight control — control-basis poses + the flight model the viewer flies
 # =============================================================================
-# Shows HOW the pilot flies the deployed wing: a roll reversal then a pitch
-# flare.  The aileron/elevator commands and the load factor are derived from the
-# documented stability + control model (analysis/flightdynamics/, docs/04):
-#   * roll: differential flaperon, roll mode tau ~ 0.05-0.06 s (crisp)
-#   * pitch: symmetric flaperon (Cm_de ~ -1.2 /rad) + pilot weight-shift, the
-#     binding CG authority (a 50 mm shift ~ the whole static margin)
-#   * turn load factor n = 1/cos(bank)
-# The wing geometry per frame carries only the flaperon deflection + the pilot
-# weight-shift; the body's bank/pitch attitude is applied by the viewer from the
-# telemetry (keeps the morph deltas small).
+# Instead of a canned maneuver, we bake four CONTROL-BASIS morph poses (extreme
+# left/right roll, nose-up/down) as deltas from the deployed wing.  The viewer
+# blends them by the live pilot input (so the flaperons deflect + the pilot
+# weight-shifts in real time) and integrates the flight model below to fly the
+# craft.  Each pose = deployed geometry + flaperon deflection + pilot weight-
+# shift (the binding CG authority); roll uses differential flaperon, pitch uses
+# symmetric flaperon + an aft/fwd shift.
 
-CONTROL_FRAMES = 24
-CONTROL_DURATION = 9.0          # s of the maneuver (display time)
+CTRL_BASIS = {
+    "rollL":  {"da": -1.0, "de":  0.0, "lean": (0.0, -0.05, 0.0)},
+    "rollR":  {"da":  1.0, "de":  0.0, "lean": (0.0,  0.05, 0.0)},
+    "pitchU": {"da":  0.0, "de":  1.0, "lean": (-0.06, 0.0, 0.0)},
+    "pitchD": {"da":  0.0, "de": -1.0, "lean": (0.05, 0.0, 0.0)},
+}
 
-
-def _bank_pitch_deg(tc):
-    """Scheduled bank phi and pitch theta (deg) over the maneuver tc in [0,1]:
-    roll left, roll through to right, level out, then a pitch flare."""
-    if tc < 0.22:
-        return lerp(0.0, -32.0, smoothstep(tc / 0.22)), 0.0
-    if tc < 0.46:
-        return lerp(-32.0, 32.0, smoothstep((tc - 0.22) / 0.24)), 0.0
-    if tc < 0.60:
-        return lerp(32.0, 0.0, smoothstep((tc - 0.46) / 0.14)), 0.0
-    if tc < 0.80:
-        return 0.0, lerp(0.0, 13.0, smoothstep((tc - 0.60) / 0.20))
-    return 0.0, lerp(13.0, 0.0, smoothstep((tc - 0.80) / 0.20))
-
-
-def build_control_frames(t0):
-    """Geometry frames + telemetry for the control demo."""
-    frames, telem = [], []
-    for i in range(CONTROL_FRAMES):
-        tc = i / (CONTROL_FRAMES - 1)
-        phi, th = _bank_pitch_deg(tc)
-        phi2, _ = _bank_pitch_deg(min(tc + 1.0 / CONTROL_FRAMES, 1.0))
-        roll_rate = (phi2 - phi) * (CONTROL_FRAMES - 1) / CONTROL_DURATION   # deg/s
-        da = max(-1.0, min(1.0, roll_rate / 90.0))     # aileron from roll rate
-        de = th / 13.0                                  # elevator from flare
-        n_load = 1.0 / max(math.cos(math.radians(phi)), 0.30) + 0.9 * de
-        # pilot weight-shift: aft for the flare, toward the low wing for roll
-        lean = (-0.06 * de, -0.05 * math.sin(math.radians(phi)), 0.0)
-        frames.append({"t": t0 + 0.001 * (i + 1),
-                       "ctrl": {"da": da, "de": de, "lean": lean}})
-        telem.append({"tc": round(tc, 4), "bank": round(phi, 2),
-                      "pitch": round(th, 2), "roll_rate": round(roll_rate, 1),
-                      "da": round(da, 3), "de": round(de, 3), "n": round(n_load, 3)})
-    return frames, telem
+# Reduced-order flight model the viewer integrates (point-mass + bank-to-turn +
+# short-period alpha).  Numbers come from the resized-planform aero
+# (analysis/aero) and the stability/control work (analysis/flightdynamics,
+# docs/04) — NOT invented.  This is what makes the craft actually flyable.
+FLIGHT_MODEL = {
+    "S": PLAN_S, "AR": PLAN_B * PLAN_B / PLAN_S,
+    "CL_alpha": 4.17, "CD0": 0.034, "e": 0.95,     # /rad, -, span-eff
+    "mass": 106.0, "g": 9.80665, "rho": 1.225,     # kg, m/s^2, kg/m^3
+    "alpha0_deg": 1.27, "alpha_trim_deg": 8.0,     # zero-lift + trim alpha
+    "alpha_limit_deg": 9.0, "alpha_stall_deg": 11.5,
+    "CLmax": 1.1, "V_trim": 18.3,                  # m/s best-glide
+    "roll_rate_max_dps": 110.0,                    # crisp roll (tau ~ 0.06 s)
+    "bank_limit_deg": 60.0,
+}
 
 
 # =============================================================================
@@ -1209,6 +1190,20 @@ def build_morph_object(traj):
             if vi < len(sk.data):
                 sk.data[vi].co = co
 
+    # control-basis shape keys: stored as base + (control_pose - deployed) so a
+    # key value w contributes (control_pose - deployed). The viewer holds the
+    # deployed frame at 1 and adds these by live input -> real-time flaperon
+    # deflection + pilot weight-shift, on top of any deploy state.
+    deployed_verts = build_frame(frames[-1])
+    for name, ctrl in CTRL_BASIS.items():
+        pose = build_frame({"t": DURATION_S, "ctrl": ctrl})
+        sk = obj.shape_key_add(name=f"ctrl_{name}", from_mix=False)
+        sk.value = 0.0
+        for vi in range(len(sk.data)):
+            b, p, d = base_verts[vi], pose[vi], deployed_verts[vi]
+            sk.data[vi].co = (b[0] + p[0] - d[0], b[1] + p[1] - d[1],
+                              b[2] + p[2] - d[2])
+
     bpy.ops.object.select_all(action="DESELECT")
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
@@ -1305,22 +1300,17 @@ def render_still(name, frame_idx, hide=()):
 
 def main():
     do_render = "--render" in sys.argv
-    print("(1) MuJoCo deployment schedule + flight-control demo...")
+    print("(1) MuJoCo deployment schedule...")
     traj = run_simulation()
     deploy_n = len(traj["frames"])
-    ctrl_frames, ctrl_telem = build_control_frames(traj["duration_s"])
-    traj["frames"].extend(ctrl_frames)
-    traj["deploy_frames"] = deploy_n
-    traj["control_frames"] = len(ctrl_frames)
     (OUT_DIR / "trajectory.json").write_text(json.dumps(traj))
-    # control telemetry for the viewer (bank/pitch drive the craft attitude)
-    control_json = {"deploy_frames": deploy_n, "control_frames": len(ctrl_frames),
-                    "total_frames": len(traj["frames"]),
-                    "duration_s": CONTROL_DURATION, "series": ctrl_telem}
+    # flight model + control-key map for the viewer's interactive flight sim
+    control_json = {"model": FLIGHT_MODEL, "deploy_frames": deploy_n,
+                    "ctrl_keys": list(CTRL_BASIS.keys())}
     SITE_MODELS.mkdir(parents=True, exist_ok=True)
     for p in (OUT_DIR / "control.json", SITE_MODELS / "control.json"):
         p.write_text(json.dumps(control_json))
-    print(f"  {deploy_n} deploy + {len(ctrl_frames)} control frames")
+    print(f"  {deploy_n} deploy frames + {len(CTRL_BASIS)} control-basis poses")
 
     print("(2) Building Blender scene...")
     clear_scene(); build_world(); add_lights(); add_camera(); setup_renderer()
@@ -1355,13 +1345,15 @@ def main():
         render_still("hero_deployed", N_FRAMES - 1, hide=(pressure, flow))
         manta.hide_render = False
         render_still("hero_flow", N_FRAMES - 1)
-        # control-demo still: a left-banked turn (flaperons deflected + pilot
-        # weight-shift in the morph; the bank attitude applied as the object's
-        # roll, exactly as the viewer does it from the control telemetry).
-        cf = deploy_n + 10
-        bank = _bank_pitch_deg(10 / (CONTROL_FRAMES - 1))[0]
-        manta.rotation_euler = (math.radians(bank), 0, 0)
-        render_still("hero_control", cf, hide=(pressure, flow))
+        # control still: a left-banked turn — hold the deployed frame, drive the
+        # rollL control-basis key (left flaperon up / right down + pilot lean),
+        # and roll the object, exactly as the viewer does live.
+        kb = manta.data.shape_keys.key_blocks
+        kb[N_FRAMES - 1].value = 1.0      # deployed
+        kb["ctrl_rollL"].value = 1.0
+        manta.rotation_euler = (math.radians(-32), 0, 0)
+        render_still("hero_control", N_FRAMES - 1, hide=(pressure, flow))
+        kb["ctrl_rollL"].value = 0.0
         manta.rotation_euler = (0.0, 0.0, 0.0)
         # top-down planform check: full span on the wide axis, high + wide
         # enough to frame both tips (span along image X via UP_X).
