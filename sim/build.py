@@ -228,6 +228,23 @@ def vcross(a, b):
             a[0] * b[1] - a[1] * b[0])
 
 
+def resample_polyline(poly, n):
+    """Resample a polyline to n points evenly by arc length."""
+    segs = [0.0]
+    for i in range(1, len(poly)):
+        segs.append(segs[-1] + vlen(vsub(poly[i], poly[i - 1])))
+    total = segs[-1] or 1e-9
+    out = []
+    for s in range(n):
+        target = total * s / (n - 1)
+        k = 0
+        while k < len(segs) - 2 and segs[k + 1] < target:
+            k += 1
+        f = (target - segs[k]) / ((segs[k + 1] - segs[k]) or 1e-9)
+        out.append(vlerp(poly[k], poly[k + 1], f))
+    return out
+
+
 # =============================================================================
 # (3) Airfoil (NACA 4-digit) — cambered cross-section
 # =============================================================================
@@ -282,7 +299,7 @@ HIP_HALF = 0.145           # bi-iliac / 2
 UPPER_ARM, FOREARM, HAND = 0.32, 0.27, 0.17
 THIGH, SHANK, FOOT = 0.43, 0.42, 0.20
 TORSO_LEN = 0.52           # acromion -> hip
-NECK_LEN, HEAD_LEN = 0.10, 0.24
+NECK_LEN, HEAD_LEN = 0.10, 0.20   # head length ~0.20 m (50th-%ile male)
 X_SHOULDER = 0.45          # shoulder x (mid-chord); arms angle fwd to the LE
 Z_BODY = Z_WING - 0.06     # prone body hangs just below the wing plane
 
@@ -541,12 +558,37 @@ class Mesh:
         if faces is not None:
             faces.append((base, base + 1, base + 2, base + 3))
 
+    def cambered_panel(self, rail_r, rail_l, n_long, n_cross, camber, faces=None):
+        """A single cambered membrane webbed between two rails (the LEG-WING /
+        tail: rail_r = right leg line, rail_l = left leg line). Arches up
+        between the rails so it reads as a fabric stabilizer surface."""
+        rr = resample_polyline(rail_r, n_long)
+        rl = resample_polyline(rail_l, n_long)
+        base = len(self.verts)
+        for i in range(n_long):
+            span = vsub(rl[i], rr[i])
+            spanlen = vlen(span) or 1e-9
+            up, _ = _orthoframe(vscale(span, 1.0 / spanlen))
+            for j in range(n_cross):
+                u = j / (n_cross - 1)
+                arch = camber * spanlen * math.sin(math.pi * u)
+                self.verts.append(vadd(vlerp(rr[i], rl[i], u), vscale(up, arch)))
+        if faces is not None:
+            for i in range(n_long - 1):
+                for j in range(n_cross - 1):
+                    a = base + i * n_cross + j
+                    b = base + i * n_cross + (j + 1)
+                    c = base + (i + 1) * n_cross + (j + 1)
+                    d = base + (i + 1) * n_cross + j
+                    faces.append((a, b, c, d))
+
 
 # =============================================================================
 # (6) Full vehicle assembly — one frame
 # =============================================================================
 
-SLOTS = ["suit", "cfrp", "skin", "rib", "reserve", "fcs", "flaperon", "metal"]
+SLOTS = ["suit", "helmet", "cfrp", "skin", "tail", "rib", "reserve", "fcs",
+         "flaperon", "metal"]
 
 
 def _pilot_fk(prog):
@@ -583,8 +625,9 @@ def _pilot_fk(prog):
     N["hip_c"] = hip_c
     N["torso_up"] = sh_c      # aliases used by the CFRP / reserve / FCS sections
     N["hip_mid"] = hip_c
-    N["neck"] = vadd(sh_c, (NECK_LEN * 0.6, 0, 0.05))
-    N["head"] = (X_SHOULDER + NECK_LEN + HEAD_LEN * 0.4, 0.0, Z_BODY + 0.04)
+    # head rides higher so a recognisable head silhouette breaches the canopy
+    N["neck"] = vadd(sh_c, (NECK_LEN * 0.6, 0, 0.07))
+    N["head"] = (X_SHOULDER + NECK_LEN + HEAD_LEN * 0.4, 0.0, Z_BODY + 0.11)
     return N
 
 
@@ -609,30 +652,38 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
     # ---- (0) PILOT — fixed-proportion anatomical body (NASA-STD-3000) ----
     fs, vs = _begin(faces, m)
     sh_c, hip_c = N["sh_c"], N["hip_c"]
-    # torso: broad shoulders -> waist -> pelvis. (ry = width/2 along span,
-    # rz = depth/2; a prone torso is wider than it is deep.)
-    torso_line = [vadd(sh_c, (0.05, 0, 0.015)),
-                  vlerp(sh_c, hip_c, 0.24), vlerp(sh_c, hip_c, 0.5),
-                  vlerp(sh_c, hip_c, 0.74), hip_c]
-    torso_rad = [(0.150, 0.110), (0.175, 0.122), (0.140, 0.108),
-                 (0.128, 0.102), (0.162, 0.112)]
+    # torso: BROAD SHOULDERS (widest, biacromial 0.40) -> waist -> fuller pelvis
+    # (ry = half-width along span, rz = half-depth; a prone torso is wider than
+    # it is deep). The first ring matches the SHOULDER_HALF=0.20 arm anchors so
+    # there is no floating-shoulder gap.
+    torso_line = [vadd(sh_c, (0.02, 0, 0.01)),
+                  vlerp(sh_c, hip_c, 0.26), vlerp(sh_c, hip_c, 0.52),
+                  vlerp(sh_c, hip_c, 0.76), hip_c]
+    torso_rad = [(0.205, 0.105), (0.180, 0.118), (0.140, 0.105),
+                 (0.135, 0.102), (0.165, 0.110)]
     m.loft(torso_line, torso_rad, faces)
-    # neck + ovoid head (helmet/hood)
-    m.loft([sh_c, N["neck"]], [(0.085, 0.075), (0.058, 0.056)], faces)
-    m.loft([N["neck"], vadd(N["head"], (-0.05, 0, -0.01)), N["head"],
-            vadd(N["head"], (0.11, 0, -0.01))],
-           [(0.058, 0.056), (0.096, 0.104), (0.100, 0.108), (0.052, 0.058)], faces)
-    # limbs: fixed-length lofts (shoulder/deltoid -> elbow -> wrist -> hand;
-    # hip -> knee -> ankle -> foot) with anatomical taper + joint bulges.
+    # deltoid bulges bridge the torso to the arm roots
+    for s in ("R", "L"):
+        m.sphere(N[s]["sh"], 0.066, faces)
+    # limbs: fixed-length lofts (shoulder -> elbow -> wrist -> hand; hip -> knee
+    # -> ankle -> foot) with anatomical taper. Hand/foot widen+flatten (paddle).
     for s in ("R", "L"):
         n = N[s]
         m.loft([n["sh"], n["el"], n["wr"], n["hand"]],
-               [(0.062, 0.062), (0.046, 0.046), (0.034, 0.032), (0.030, 0.020)],
+               [(0.060, 0.060), (0.046, 0.046), (0.036, 0.034), (0.040, 0.018)],
                faces)
         m.loft([n["hip"], n["kn"], n["ank"], n["foot"]],
-               [(0.094, 0.094), (0.060, 0.060), (0.044, 0.042), (0.036, 0.026)],
+               [(0.092, 0.092), (0.060, 0.060), (0.046, 0.044), (0.050, 0.022)],
                faces)
     end("suit", fs, vs)
+
+    # ---- (0b) HELMET — distinct material so the pilot reads as a human ----
+    fs, vs = _begin(faces, m)
+    m.loft([sh_c, N["neck"]], [(0.078, 0.072), (0.054, 0.052)], faces)
+    head = N["head"]
+    m.loft([N["neck"], vadd(head, (-0.04, 0, -0.01)), head, vadd(head, (0.085, 0, 0.0))],
+           [(0.054, 0.052), (0.076, 0.082), (0.078, 0.084), (0.040, 0.046)], faces)
+    end("helmet", fs, vs)
 
     # ---- (1) CFRP STRUCTURE ----
     fs, vs = _begin(faces, m)
@@ -651,10 +702,11 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
         m.tube(vadd(node, (0, 0, 0.055)), vadd(node, (0, 0, -0.055)), r, r, faces)
         m.box(node, (0.055, 0.052, 0.042), faces)
     hs = half_span(prog)
-    # boom roots start at the FIXED-length wrist/ankle hubs (fall out of the FK,
-    # NOT a stretched span); the booms cover wrist/ankle -> tip.
-    awr = abs(N["R"]["wr"][1])
-    awk = abs(N["R"]["ank"][1])
+    # boom roots start at the FIXED-length hand/foot hubs (fall out of the FK,
+    # NOT a stretched span); the booms cover hand/foot -> tip with no orphan
+    # limb stub past the boom root.
+    awr = abs(N["R"]["hand"][1])
+    awk = abs(N["R"]["foot"][1])
     for s in ("R", "L"):
         sgn = 1.0 if s == "R" else -1.0
         n = N[s]
@@ -663,23 +715,27 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
         # (3 distinct, non-degenerate, OD-stepped tubes wrist -> tip)
         m.tube(n["sh"], n["el"], 0.036, 0.030, faces)
         m.tube(n["el"], n["wr"], 0.030, 0.025, faces)
+        m.tube(n["wr"], n["hand"], 0.025, 0.021, faces)
         # booms ride just below the LE skin (z offset) so the nested OD-stepped
-        # stages stay legible through the translucent skin
+        # stages stay legible through the translucent skin.  The first stage
+        # continues the limb's own axis off the hand/foot so there's no kink at
+        # the hub; later stages rejoin the swept planform edge.
         bz = (0.0, 0.0, -0.05)
         boom_le = [vadd(le_point(sgn * lerp(awr, hs, 1 / 3)), bz),
                    vadd(le_point(sgn * lerp(awr, hs, 2 / 3)), bz),
                    vadd(le_point(sgn * hs), bz)]
-        prev = n["wr"]
+        prev = n["hand"]
         for k, node in enumerate(boom_le):
             m.tube(prev, node, radii[k][0], radii[k][1], faces)
             prev = node
-        # TE spar along the leg, then a matching 3-stage ankle boom
+        # TE spar along the leg to the foot, then a matching 3-stage boom
         m.tube(n["hip"], n["kn"], 0.034, 0.028, faces)
         m.tube(n["kn"], n["ank"], 0.028, 0.022, faces)
+        m.tube(n["ank"], n["foot"], 0.022, 0.018, faces)
         boom_te = [vadd(te_point(sgn * lerp(awk, hs, 1 / 3), prog), bz),
                    vadd(te_point(sgn * lerp(awk, hs, 2 / 3), prog), bz),
                    vadd(te_point(sgn * hs, prog), bz)]
-        prev = n["ank"]
+        prev = n["foot"]
         for k, node in enumerate(boom_te):
             m.tube(prev, node, radii[k][0] * 0.92, radii[k][1] * 0.92, faces)
             prev = node
@@ -689,6 +745,17 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
     fs, vs = _begin(faces, m)
     m.wing_skin(prog, sk_loop, AF_T_SKIN, BILLOW, faces, skin_meta)
     end("skin", fs, vs)
+
+    # ---- (2b) TAIL MEMBRANE — the leg-wing webbed between the legs ----
+    # The pilot's legs splay aft to form the rear stabiliser: a fabric membrane
+    # is stretched between the two legs (crotch -> between the feet), behind the
+    # main wing's centre TE. This is the empennage the legs control for pitch.
+    fs, vs = _begin(faces, m)
+    crotch = vadd(N["hip_c"], (-0.04, 0, -0.01))
+    m.cambered_panel([crotch, N["R"]["kn"], N["R"]["ank"], N["R"]["foot"]],
+                     [crotch, N["L"]["kn"], N["L"]["ank"], N["L"]["foot"]],
+                     n_long=12, n_cross=11, camber=0.12, faces=faces)
+    end("tail", fs, vs)
 
     # ---- (3) BISTABLE RIBS (9 per side) — coiled stowed, snap on Phase C ----
     fs, vs = _begin(faces, m)
@@ -720,10 +787,16 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
     # chord grows from ~0 (furled, no floating tab) to 0.16 m as the wing sets
     chord = 0.16 * (0.03 + 0.97 * prog["flap"])
     aft = (-chord * math.cos(defl), 0, -chord * math.sin(defl))
+
+    def te_skin_pt(y):
+        # the actual trailing-edge skin vertex (carries the washout twist +
+        # billow), so the flaperon hinge sits ON the skin, not floating.
+        pts, _ = wing_section_points(y, prog, sk_loop, AF_T_SKIN,
+                                     BILLOW * min(1.0, hs / HALF_SPAN_FULL))
+        return pts[N_CHORD - 1]
     for s in ("R", "L"):
         sgn = 1.0 if s == "R" else -1.0
-        ya, yb = sgn * 0.58 * hs, sgn * 0.92 * hs
-        pa, pb = te_point(ya, prog), te_point(yb, prog)
+        pa, pb = te_skin_pt(sgn * 0.58 * hs), te_skin_pt(sgn * 0.92 * hs)
         m.panel(pa, pb, vadd(pb, aft), vadd(pa, aft), faces)
     end("flaperon", fs, vs)
 
@@ -926,11 +999,15 @@ def make_material(name, color, metallic=0.0, roughness=0.5, alpha=1.0,
         bsdf.inputs["Emission Strength"].default_value = 2.5
     if alpha < 1.0:
         bsdf.inputs["Alpha"].default_value = alpha
-        # Blender 4.2+/EEVEE-Next replaced blend_method with surface_render_method
+        # Blender 4.2+/EEVEE-Next replaced blend_method with surface_render_method;
+        # use_transparency_overlap lets stacked translucent skin layers show the
+        # structure + pilot behind them (otherwise only the front layer renders).
         if hasattr(mat, "surface_render_method"):
             mat.surface_render_method = "BLENDED"
         else:
             mat.blend_method = "BLEND"
+        if hasattr(mat, "use_transparency_overlap"):
+            mat.use_transparency_overlap = True
         if hasattr(mat, "show_transparent_back"):
             mat.show_transparent_back = False
     if vcol:
@@ -1020,8 +1097,10 @@ def build_morph_object(traj):
 
     mats = {
         "suit": make_material("suit", (0.13, 0.15, 0.21), metallic=0.05, roughness=0.66),
+        "helmet": make_material("helmet", (0.86, 0.88, 0.92), metallic=0.3, roughness=0.28),
         "cfrp": make_material("cfrp", (0.025, 0.025, 0.032), metallic=0.75, roughness=0.26),
         "skin": make_material("skin", (0.10, 0.34, 0.85), roughness=0.30, alpha=0.32),
+        "tail": make_material("tail", (0.16, 0.44, 0.88), roughness=0.32, alpha=0.42),
         "rib": make_material("rib", (0.06, 0.07, 0.09), metallic=0.5, roughness=0.4),
         "reserve": make_material("reserve", (0.85, 0.30, 0.08), roughness=0.55),
         "fcs": make_material("fcs", (0.05, 0.18, 0.10), metallic=0.4, roughness=0.5,
