@@ -73,9 +73,9 @@ import Viewer from "../components/viewer/Viewer.tsx";
   >
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <MetricCard label="Wing area" value="6.5" unit="m²" note="Resized down from 8.4 m² — lands under reserve, so a low stall speed isn't required." />
-      <MetricCard label="Span" value="6.3" unit="m" note="Aspect ratio 6.11, taper 0.4, sweep 25°, washout 6°." />
+      <MetricCard label="Span" value="6.3" unit="m" note="Aspect ratio 6.11, taper 0.4, sweep 25°, washout 7° (raised from 6° to recover trim margin)." />
       <MetricCard label="CL_α (3D, Weissinger)" value="4.17" unit="/rad" note="≈ 0.073 /deg. Helmbold cross-checked." />
-      <MetricCard label="Static margin (6° washout)" value="4.8 %" unit="MAC" tone="warn" note="Trim study, design CL. Down from 5.4% before the resize; the dynamic CG-sweep is tighter (~2.7%). Alpha-limiter is now even more load-bearing." />
+      <MetricCard label="Static margin" value="5.6 %" unit="MAC" tone="warn" note="Trim study at 7° washout. But the binding CG-based margin is ~2.7% (washout-independent) — tight, FCS-managed. Alpha-limiter + yaw damper now mandatory." />
       <MetricCard label="(L/D)ₘₐₓ" value="11.6" note="At V ≈ 18 m/s, nominal body CdA = 0.20 m²." />
       <MetricCard label="Dutch-roll damping ζ" value="0.17" tone="warn" note="At V_bg, resized planform (was 0.29). Level 2/3 — the artificial yaw damper is now mandatory, not just recommended." />
       <MetricCard label="Deployment time" value="≈ 0.6" unit="s" note="Phase A arm spread + Phase B boom telescope + Phase D skin tension." />

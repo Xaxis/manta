@@ -43,7 +43,7 @@ of sporting goods. Treat it as such.
    panels, tensioned by full deployment of the structure.
 
 5. **Wing planform — resized (finding #5).** S = 6.5 m², b = 6.3 m,
-   AR = 6.1, 25° LE sweep, taper ratio 0.4, 6° tip washout. Downsized
+   AR = 6.1, 25° LE sweep, taper ratio 0.4, 7° tip washout. Downsized
    from the original 8.4 m² / 7.4 m: because MANTA lands under a reserve
    canopy (not on the wing), a low stall speed is not required, which
    frees the wing to shrink for a far more feasible ~2.4 m telescoping
@@ -126,17 +126,21 @@ These came out of deliverables #1–#6 + the architecture rebuild:
    wing planform floating above the pilot. The CORRECT concept is the
    arm-braced wingsuit-extension architecture defined above. This
    amendment supersedes architecture decisions in BRIEF v1.
-5. **The 6.5 m²/6.3 m resize (finding #5 above) costs stability.**
-   Re-running struct + flight-dynamics for the smaller wing: static
-   margin falls to **4.8 % MAC** (trim study, 6° washout; the dynamic
-   CG-sweep is tighter, ~2.7 %) from the old 5.4 %, and Dutch-roll
-   damping drops to **ζ ≈ 0.17** (was 0.29). Consequences: the
-   alpha-limiter is even more load-bearing, the artificial yaw damper
-   becomes **mandatory** (not just recommended), and a ~3 cm aft pilot
-   CG shift takes the wing neutral. **Open decision:** accept this and
-   lean harder on the FCS, raise washout toward 7° (recovers ~1 % SM),
-   or revisit the wing size for a stability/deployability balance.
-   Upside of the resize is unchanged: ~2.4 m boom (was 2.9), L/D 11.6.
+6. **The 6.5 m²/6.3 m resize (finding #5) costs stability — partly
+   mitigated.** Re-running struct + flight-dynamics for the smaller
+   wing: Dutch-roll damping drops to **ζ ≈ 0.17** (was 0.29), the
+   spiral diverges faster, and the **binding (CG-based) static margin
+   is ~2.7 % MAC** — tight, and a ~3 cm aft pilot CG shift takes it
+   neutral. **Action taken:** washout raised 6°→7° (geometry.py); this
+   restores the *trim* static margin to **5.6 %** and keeps a healthy
+   ~10° tip-stall margin, but the *dynamic* CG-based margin (~2.7 %) is
+   washout-independent — genuinely recovering it needs a CG shift (wing
+   aft / mass fwd). The design is fly-by-wire by intent, so ~2.7 % is
+   FCS-managed: the **alpha-limiter and yaw damper are now mandatory
+   flight-safety items**, not optional. Spar got lighter (67 mm root vs
+   73, shorter span → less moment). Resize upside unchanged: 2.4 m boom
+   (was 2.9), L/D 11.6. **Open:** accept FCS-managed margin (current) or
+   revisit wing size / CG for more passive stability.
 
 ## First deliverables (revised priority)
 

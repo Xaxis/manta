@@ -41,7 +41,9 @@ class Planform:
     b: float = 6.3         # tip-to-tip span, m
     taper: float = 0.4     # tip chord / root chord
     sweep_le_deg: float = 25.0  # leading-edge sweep, degrees
-    washout_deg: float = 6.0    # geometric twist, root → tip, degrees (top of BRIEF range)
+    washout_deg: float = 7.0    # geometric twist, root → tip, degrees. Raised from
+                                # 6° to recover static margin lost in the resize
+                                # (trim study: 6°→4.8% SM, 7°→5.6% SM). BRIEF finding #6.
     section_t_c: float = 0.12   # representative airfoil thickness ratio for wetted area
 
     # ---- Derived quantities -------------------------------------------------

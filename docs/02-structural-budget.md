@@ -1,5 +1,11 @@
 # 02 — Structural Budget
 
+> **⚠ Resized planform.** Authored for the 8.4 m² / 7.4 m wing; the wing is now
+> **6.5 m² / 6.3 m** (BRIEF findings #5/#6). `analysis/struct/out/` data + plots
+> are regenerated — re-run `make struct`. Headline deltas: bending-sized front
+> spar root **67 mm** OD (was 73) — shorter span → less root moment; wing-system
+> mass **~16.3 kg**; telescoping boom 2.9 → **2.4 m/side**.
+
 **Status:** First-cut closed. The analysis has surfaced two binding tensions
 with `BRIEF.md` that need a decision before structural design proceeds:
 

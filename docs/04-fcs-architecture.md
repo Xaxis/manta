@@ -1,5 +1,13 @@
 # 04 — FCS Architecture
 
+> **⚠ Resized planform — FCS is now MORE load-bearing.** The wing was downsized
+> to **6.5 m² / 6.3 m, AR 6.1, 7° washout** (BRIEF findings #5/#6) and the
+> flight-dynamics were re-run. The binding (CG-based) **static margin is ~2.7 %
+> MAC** (a ~3 cm aft pilot shift takes it neutral) and **Dutch-roll ζ dropped to
+> 0.17** (was 0.29). Consequence: the **alpha-limiter and the artificial yaw
+> damper are now MANDATORY flight-safety items**, not optional. `analysis/
+> flightdynamics/out/` + `fcs/sim/out/` are regenerated for the new planform.
+
 **Status:** First-cut closed. Limiter prototype, longitudinal dynamics
 analysis, and closed-loop characterization are runnable. Outstanding work
 is the lateral-directional axis and the actual hardware/firmware build

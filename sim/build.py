@@ -71,7 +71,7 @@ PLAN_S = 6.5
 PLAN_B = 6.3
 PLAN_TAPER = 0.4
 PLAN_SWEEP_DEG = 25.0
-PLAN_WASHOUT_DEG = 6.0          # BRIEF #5 locks 6 deg tip washout
+PLAN_WASHOUT_DEG = 7.0          # raised 6->7 to recover static margin (finding #6)
 HALF_SPAN_FULL = PLAN_B / 2.0                                  # 3.15 m
 CHORD_ROOT = 2.0 * PLAN_S / (PLAN_B * (1.0 + PLAN_TAPER))      # 1.474 m
 CHORD_TIP = PLAN_TAPER * CHORD_ROOT                            # 0.590 m
@@ -234,7 +234,7 @@ FLIGHT_MODEL = {
     "S": PLAN_S, "AR": PLAN_B * PLAN_B / PLAN_S,
     "CL_alpha": 4.17, "CD0": 0.034, "e": 0.95,     # /rad, -, span-eff
     "mass": 106.0, "g": 9.80665, "rho": 1.225,     # kg, m/s^2, kg/m^3
-    "alpha0_deg": 1.27, "alpha_trim_deg": 8.0,     # zero-lift + trim alpha
+    "alpha0_deg": 1.5, "alpha_trim_deg": 8.5,      # zero-lift + trim alpha (7° washout)
     "alpha_limit_deg": 9.0, "alpha_stall_deg": 11.5,
     "CLmax": 1.1, "V_trim": 18.3,                  # m/s best-glide
     "roll_rate_max_dps": 110.0,                    # crisp roll (tau ~ 0.06 s)

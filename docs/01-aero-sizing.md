@@ -1,5 +1,13 @@
 # 01 — Aero Sizing
 
+> **⚠ Resized planform.** This write-up was authored for the original
+> 8.4 m² / 7.4 m wing. The wing was downsized to **6.5 m² / 6.3 m, AR 6.1, 7°
+> washout** (BRIEF findings #5/#6). The scripts + `analysis/aero/*/out/` data +
+> plots are regenerated for the current planform — re-run `make aero` for live
+> numbers. Headline deltas: CL_α 4.24 → **4.17 /rad**; V_bg ~16 → **18.3 m/s**;
+> (L/D)ₘₐₓ 12.0 → **11.6**; root chord 1.62 → **1.47 m**; trim SM at 7° washout
+> **5.6 %** (binding CG-based margin ~2.7 %).
+
 **Status:** First-cut closed. AVL and XFOIL verification pending; trim
 parameters and architecture decisions flagged for review where the analysis
 surfaces tension with `BRIEF.md`.
