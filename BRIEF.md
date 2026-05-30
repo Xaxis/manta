@@ -112,11 +112,12 @@ of sporting goods. Treat it as such.
 
 These came out of deliverables #1–#6 + the architecture rebuild:
 
-1. **V_bg ≈ 16 m/s, not 25 m/s** — the wing's natural best-glide is
-   ~16 m/s with the locked planform (analysis/aero/lift_drag/).
-2. **Front spar must grow** to 73 mm OD root, 2.5 mm wall (was
-   40 mm/2 mm) — bending analysis surfaced the original spec failed
-   at 3 g limit.
+1. **V_bg ≈ 18 m/s, not 25 m/s** — best-glide is ~18 m/s on the
+   resized 6.5 m² wing (was ~16 on the 8.4 m²); superseded by
+   finding #5 (analysis/aero/lift_drag/).
+2. **Front spar must grow** to 67 mm OD root, 2.5 mm wall (was
+   40 mm/2 mm) — bending analysis. (73 mm on the old 8.4 m² wing;
+   the resized shorter span drops it to 67 mm — finding #6.)
 3. **Active per-side flow modulation** (rather than passive matched-
    impedance manifold) is required to close the 10 ms 3-σ symmetry
    budget.

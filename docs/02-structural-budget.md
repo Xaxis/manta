@@ -10,7 +10,7 @@
 with `BRIEF.md` that need a decision before structural design proceeds:
 
 1. **The locked spar dimensions (front 40 mm OD / 2 mm wall) fail the bending
-   case at 3 g limit by a factor of ~3 in stress.** Recommended sizing: 73 mm
+   case at 3 g limit by a factor of ~3 in stress.** Recommended sizing: 67 mm
    OD root / 2.5 mm wall. (Section "Spar bending" below.)
 2. **The 15.5 kg wing-system mass target cannot be met** with the
    bending-correct spar. Recommended budget: **~16.6 kg** with a properly
@@ -137,7 +137,7 @@ At 2.5 mm wall, with stage progression OD_root / 0.7·OD_root / 25 mm:
 
 ### Recommended front spar
 
-- **OD_root = 73 mm**, OD_mid = 51 mm, OD_tip = 25 mm
+- **OD_root = 67 mm**, OD_mid = 51 mm, OD_tip = 25 mm
 - **Wall = 2.5 mm**
 - 3-stage telescoping, stage length 1.283 m each (joint overlap 50 mm)
 - Per-side mass: **2.34 kg** (vs. BRIEF default 1.24 kg → **+1.10 kg/side**)
@@ -166,7 +166,7 @@ margin against the 403 MPa allowable.
 `14.21 kg < 15.5 kg target — but the spar in this configuration fails
 bending. Not a usable design.`
 
-### Component roll-up — bending-sized front spar (73 mm/2.5 mm)
+### Component roll-up — bending-sized front spar (67 mm/2.5 mm)
 
 | Component | Mass (kg) | % of 15.5 target |
 |---|---|---|
@@ -206,7 +206,7 @@ flutter; reducing skin below 40 g/m² loses tear resistance.
 
 ### 1. Adopt the bending-sized front spar.
 
-OD_root 73 mm, OD_mid 51 mm, OD_tip 25 mm, wall 2.5 mm. This is the
+OD_root 67 mm, OD_mid 51 mm, OD_tip 25 mm, wall 2.5 mm. This is the
 smallest spar that closes the bending case at 3 g limit / 4.5 g ultimate
 with a 1.5× margin on the design-limit stress. **Update BRIEF
 architecture decision #1 to reflect this.**
@@ -243,11 +243,11 @@ coupon test data the program doesn't yet have — no shortcut here.
 `cad/spars/build.py` exports both BRIEF and sized configurations:
 
 - `cad/spars/out/spars_brief.step`  (40/32/25 mm, fails bending)
-- `cad/spars/out/spars_sized.step`  (73/51/25 mm, recommended)
+- `cad/spars/out/spars_sized.step`  (67/47/25 mm, recommended)
 
 Same for `.stl`. The sized spar visibly larger at the root — it's a
 significant change to the wing's stowed-package thickness budget too,
-since the stowed (telescoped) bundle is now 73 mm in the front-spar
+since the stowed (telescoped) bundle is now 67 mm in the front-spar
 diameter (vs. 40 mm BRIEF) plus the rear spar plus the tape-spring
 ribs and skin folded around them. The BRIEF "stowed package thickness
 < 15 cm off body profile" constraint may also need re-examination.

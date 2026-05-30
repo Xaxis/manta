@@ -56,7 +56,7 @@ class Cd0Buildup:
     body_cda_optimistic_m2: float = 0.15
     body_cda_nominal_m2: float = 0.20
     body_cda_pessimistic_m2: float = 0.30
-    s_ref: float = 8.4
+    s_ref: float = 6.5      # resized planform (BRIEF #5)
 
     # ---- Miscellaneous (drogue stowage tether, sensors, gaps) ----------
     # Raymer recommends 5–10 % of clean CD0 as roughness/excrescence.

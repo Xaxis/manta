@@ -4,7 +4,7 @@ a detailed, fully-articulated GLB (morph-animated deployment) + a baked aero
 field (surface pressure + streamlines) + Blender hero renders.
 
 This version builds the resized planform (BRIEF #5, finding #5: S=6.5 m^2,
-b=6.3 m, AR 6.1, 25 deg LE sweep, taper 0.4, 6 deg washout — downsized from
+b=6.3 m, AR 6.1, 25 deg LE sweep, taper 0.4, 7 deg washout — downsized from
 8.4/7.4 since MANTA lands under reserve) as a DOUBLE-SURFACE cambered wing
 tip-to-tip (upper skin + lower wingsuit), continuous across the body and the
 region between the legs, like a rigid wing or paraglider canopy.  The pilot is
@@ -234,9 +234,9 @@ FLIGHT_MODEL = {
     "S": PLAN_S, "AR": PLAN_B * PLAN_B / PLAN_S,
     "CL_alpha": 4.17, "CD0": 0.034, "e": 0.95,     # /rad, -, span-eff
     "mass": 106.0, "g": 9.80665, "rho": 1.225,     # kg, m/s^2, kg/m^3
-    "alpha0_deg": 1.5, "alpha_trim_deg": 8.5,      # zero-lift + trim alpha (7° washout)
-    "alpha_limit_deg": 9.0, "alpha_stall_deg": 11.5,
-    "CLmax": 1.1, "V_trim": 18.3,                  # m/s best-glide
+    "alpha0_deg": 1.5, "alpha_trim_deg": 7.5,      # zero-lift + trim alpha (7° washout)
+    "alpha_limit_deg": 10.0, "alpha_stall_deg": 11.5,
+    "CLmax": 1.1, "V_trim": 20.0,                  # higher-loaded wing cruises faster
     "roll_rate_max_dps": 110.0,                    # crisp roll (tau ~ 0.06 s)
     "bank_limit_deg": 60.0,
 }
@@ -767,9 +767,15 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
     in_le = (-0.04, 0, 0.0)         # boom just inside the leading edge
     in_te = (0.04, 0, 0.0)          # boom just inside the trailing edge
 
-    def boom(root, nodes, radii):
-        prev = root
-        for nd, (r0, r1) in zip(nodes, radii):
+    def boom(root, targets, radii):
+        # Telescoping boom: each stage interpolates from the hub (root) to its
+        # planform station by prog["tip"]. Retracted (tip=0) it's a stub AT the
+        # hub — it never jumps across the body to reach a collapsed planform
+        # point; extended (tip=1) it reaches the full swept LE/TE. The nodes
+        # stay monotonic outboard so the stages never fold back.
+        prev, tipf = root, prog["tip"]
+        for tgt, (r0, r1) in zip(targets, radii):
+            nd = vlerp(root, tgt, tipf)
             m.tube(prev, nd, r0, r1, faces)
             prev = nd
 
@@ -841,9 +847,10 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
             m.rib(y, prog, rib_loop, t_rib, 0.006, faces)
     end("rib", fs, vs)
 
-    # ---- (4) RESERVE CONTAINER (sits ON the back, above the spine yoke) ----
+    # ---- (4) RESERVE CONTAINER (a low pack on the back, behind the shoulders;
+    #      kept small + dark + low so it doesn't read as the pilot's head) ----
     fs, vs = _begin(faces, m)
-    m.box(vadd(N["torso_up"], (-0.06, 0, 0.215)), (0.15, 0.12, 0.06), faces)
+    m.box(vadd(N["torso_up"], (-0.14, 0, 0.125)), (0.13, 0.105, 0.045), faces)
     end("reserve", fs, vs)
 
     # ---- (5) FCS BAY ----
@@ -892,12 +899,13 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
         m.tube(shoulder_yoke, vadd(n["sh"], below), 0.018, 0.015, faces)
         m.tube(hip_yoke, vadd(n["hip"], below), 0.018, 0.015, faces)
         # cuffs: bands that strap the arm/leg to the spar (BRIEF #2 bonded sleeve)
-        def cuff(a, b_, frac):
-            c = vadd(vlerp(a, b_, frac), (0, 0, -0.022))
+        def cuff(a, b_, frac, r):
+            # a thin strap just proud of the limb, clamping it to the spar below
+            c = vadd(vlerp(a, b_, frac), (0, 0, -0.018))
             d = vnorm(vsub(b_, a))
-            m.tube(vadd(c, vscale(d, -0.02)), vadd(c, vscale(d, 0.02)), 0.078, 0.078, faces)
-        cuff(n["sh"], n["el"], 0.6); cuff(n["el"], n["wr"], 0.5)
-        cuff(n["hip"], n["kn"], 0.6); cuff(n["kn"], n["ank"], 0.5)
+            m.tube(vadd(c, vscale(d, -0.012)), vadd(c, vscale(d, 0.012)), r, r, faces)
+        cuff(n["sh"], n["el"], 0.6, 0.062); cuff(n["el"], n["wr"], 0.5, 0.05)
+        cuff(n["hip"], n["kn"], 0.6, 0.072); cuff(n["kn"], n["ank"], 0.5, 0.058)
     end("metal", fs, vs)
 
     return m.verts
@@ -1181,7 +1189,7 @@ def build_morph_object(traj):
         "wingsuit": make_material("wingsuit", (0.20, 0.21, 0.24), roughness=0.78, alpha=0.82),
         "tail": make_material("tail", (0.16, 0.44, 0.88), roughness=0.32, alpha=0.42),
         "rib": make_material("rib", (0.06, 0.07, 0.09), metallic=0.5, roughness=0.4),
-        "reserve": make_material("reserve", (0.85, 0.30, 0.08), roughness=0.55),
+        "reserve": make_material("reserve", (0.22, 0.20, 0.17), roughness=0.7),
         "fcs": make_material("fcs", (0.05, 0.18, 0.10), metallic=0.4, roughness=0.5,
                              emission=(0.0, 0.6, 0.2)),
         "flaperon": make_material("flaperon", (0.92, 0.55, 0.10), roughness=0.45),

@@ -89,13 +89,16 @@ function makeFlowMaterial() {
 }
 
 function freshFlight(M?: FlightModel): Flight {
-  return { V: M?.V_trim ?? 18, gamma: d2r(-3.5), psi: 0, phi: 0,
-    alpha: d2r(M?.alpha_trim_deg ?? 8), h: 0, x: 0, z: 0, n: 1, limited: false };
+  return { V: M?.V_trim ?? 20, gamma: d2r(-4.5), psi: 0, phi: 0,
+    alpha: d2r(M?.alpha_trim_deg ?? 7.5), h: 0, x: 0, z: 0, n: 1, limited: false };
 }
 function stepFlight(f: Flight, M: FlightModel, rollIn: number, pitchIn: number, dt: number) {
   f.phi += rollIn * d2r(M.roll_rate_max_dps) * dt;
   f.phi = clamp(f.phi, -d2r(M.bank_limit_deg), d2r(M.bank_limit_deg));
-  let aCmd = d2r(M.alpha_trim_deg) + pitchIn * d2r(6.5);
+  // pitch command + a bank-compensation term: banking demands more lift to hold
+  // the turn, so the wing loads up (n rises toward 1/cos φ) instead of sinking.
+  let aCmd = d2r(M.alpha_trim_deg) + pitchIn * d2r(6.5)
+    + (1 / Math.max(Math.cos(f.phi), 0.4) - 1) * d2r(4.0);
   f.limited = aCmd > d2r(M.alpha_limit_deg);
   aCmd = clamp(aCmd, d2r(-2), d2r(M.alpha_limit_deg));
   f.alpha += (aCmd - f.alpha) * Math.min(1, dt / 0.15);
@@ -115,10 +118,13 @@ function stepFlight(f: Flight, M: FlightModel, rollIn: number, pitchIn: number, 
   f.h += f.V * Math.sin(f.gamma) * dt;
   f.x += Vh * Math.cos(f.psi) * dt;
   f.z += -Vh * Math.sin(f.psi) * dt;
-  // ground contact -> relaunch
+  // ground contact -> relaunch IN PLACE (keep x/z/heading; lift back up over the
+  // local terrain) instead of teleporting to the world origin.
   if (ALT0 + f.h <= terrainH(f.x, f.z) + 6) {
-    const keepPsi = f.psi;
-    Object.assign(f, freshFlight(M)); f.psi = keepPsi;
+    const { x, z, psi } = f;
+    Object.assign(f, freshFlight(M));
+    f.x = x; f.z = z; f.psi = psi;
+    f.h = terrainH(x, z) - ALT0 + 80;     // ~80 m above the local terrain
   }
 }
 
@@ -192,7 +198,8 @@ function MantaModel({ flyRef, flying, flightRef, inputRef, control, deployRef, f
       stepFlight(flightRef.current, control.model, inputRef.current.roll, inputRef.current.pitch, dt);
       const f = flightRef.current;
       if (craft.current) { craft.current.position.set(f.x, ALT0 + f.h, f.z); craft.current.rotation.set(0, f.psi, 0); }
-      if (attitude.current) attitude.current.rotation.set(f.phi, 0, f.gamma + f.alpha);
+      // -φ about X so the craft banks INTO the turn (inside wing drops); pitch about Z
+      if (attitude.current) attitude.current.rotation.set(-f.phi, 0, f.gamma + f.alpha);
       const ri = inputRef.current.roll, pi = inputRef.current.pitch;
       morphs.forEach((mesh) => {
         const infl = mesh.morphTargetInfluences!, dict = mesh.morphTargetDictionary!;

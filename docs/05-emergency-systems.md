@@ -23,7 +23,7 @@ front-right, rear-left, rear-right).
 | Property | Spec |
 |---|---|
 | Cutter type | Linear shaped charge (LSC), aluminum housing wrapping the spar root just outboard of the bonded fitting |
-| Cut diameter | Front: 73 mm sized spar OD + 5 mm wall ferrule clearance; rear: 30 mm |
+| Cut diameter | Front: 67 mm sized spar OD + 5 mm wall ferrule clearance; rear: 30 mm |
 | Initiator | NASA-style standard initiator (NSI) or equivalent, dual per cutter (independent pyrotechnic + electrical paths) |
 | Cut time | < 5 ms after fire signal received (LSC propagation) |
 | No-fire margin | 1 W / 1 A for 5 minutes (B-basis, 95/95 confidence — defended by vendor coupon tests) |
@@ -170,7 +170,7 @@ By design:
    requires.
 2. **Cutter vendor selection.** Down-select from PacSci / SDI /
    Ensign-Bickford based on cost, lead time, NSI availability, and
-   ability to deliver ≤ 5 ms cut on the 73 mm front-spar size.
+   ability to deliver ≤ 5 ms cut on the 67 mm front-spar size.
 3. **Stub geometry confirmation.** Once `cad/harness/` is built,
    confirm the stub-vs-reserve-cone clearance with a real harness
    placement, not the placeholder used here.

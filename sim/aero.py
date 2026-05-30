@@ -46,15 +46,15 @@ from dataclasses import dataclass
 RHO = 1.0556          # kg/m^3   air density at ~1500 m
 G = 9.80665           # m/s^2
 
-# --- locked planform (BRIEF.md) ----------------------------------------
-S_WING = 8.4          # m^2
-SPAN = 7.4            # m
-AR_WING = 6.5
+# --- resized planform (BRIEF #5/#6: 6.5 m²/6.3 m, AR 6.1, 7° washout) -----
+S_WING = 6.5          # m^2
+SPAN = 6.3            # m
+AR_WING = 6.106
 E_OSWALD = 0.85
 CD0_WING = 0.025
-CHORD_BAR = S_WING / SPAN     # mean aero chord ~1.135 m
+CHORD_BAR = S_WING / SPAN     # mean aero chord ~1.03 m
 ALPHA0 = math.radians(-2.0)   # zero-lift angle (slight reflex/washout camber)
-CLMAX_WING = 1.20
+CLMAX_WING = 1.10
 CLA_WING = 4.5                # 1/rad finite-wing lift slope w/ 25 deg sweep
 
 # --- stowed bluff body (belly-to-earth freefall) ------------------------
@@ -147,11 +147,14 @@ def steady_glide(mass: float, p: float = 1.0) -> dict:
 def assert_targets(mass: float = 86.0, verbose: bool = True) -> dict:
     """Prove the model reproduces the BRIEF performance targets."""
     s = steady_glide(mass)
+    # Targets updated for the resized 6.5 m² wing (BRIEF #5/#6): higher wing
+    # loading → faster V_bg + higher stall, which is fine since MANTA lands
+    # under reserve (the <14 m/s stall target was relaxed in the resize).
     checks = [
-        ("V_best_glide  ~16 m/s", s["V_best_glide"], 14.0, 18.0),
-        ("L/D_max       10-13",   s["L_over_D_max"], 10.0, 13.5),
-        ("V_stall       <14 m/s", s["V_stall"], 9.0, 14.0),
-        ("V_terminal    40-50",   s["V_terminal_stowed"], 38.0, 52.0),
+        ("V_best_glide  ~18-20 m/s", s["V_best_glide"], 16.0, 22.0),
+        ("L/D_max       10-13",      s["L_over_D_max"], 10.0, 13.5),
+        ("V_stall       ~15 m/s",    s["V_stall"], 11.0, 17.0),
+        ("V_terminal    40-50",      s["V_terminal_stowed"], 38.0, 52.0),
     ]
     if verbose:
         print(f"  steady-state @ {mass:.0f} kg all-up:")
