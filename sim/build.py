@@ -201,6 +201,46 @@ def rib_ease(x):
     return smoothstep(x)
 
 
+def rib_eta_frac(k):
+    """Spanwise position (fraction of half-span) of rib k. Ribs sit OUTBOARD of
+    the centre-body fairing so they never run through the pilot."""
+    return RIB_ETA_IN + (k + 0.5) / N_RIBS * (RIB_ETA_OUT - RIB_ETA_IN)
+
+
+def _pbump(x, c, pl, tp, h):
+    """Flat-topped raised-cosine bump: height h for |x-c|<pl, cosine taper to 0
+    over the next tp, zero beyond. Used to shape the centre-body fairing."""
+    d = abs(x - c)
+    if d < pl:
+        return h
+    if d < pl + tp:
+        return h * 0.5 * (1 + math.cos(math.pi * (d - pl) / tp))
+    return 0.0
+
+
+def center_fair(px, xc, y, surf):
+    """Signed z-offset that blends the wing centre section into a fuselage
+    enclosing the suited pilot: a canopy over the head + a dorsal hump over the
+    back (upper surface), and a belly pod under the chest (lower surface). The
+    bump shapes/heights are fit to the pilot envelope so nothing pierces the
+    skin. Fairs to zero spanwise by FAIR_Y_OUT and is sealed to zero within 5%
+    chord of the LE/TE so the airfoil stays closed. px is world chord-x, xc is
+    chord fraction, y is span."""
+    ry = abs(y)
+    if ry >= FAIR_Y_OUT:
+        return 0.0
+    fy = 1.0 if ry <= FAIR_Y_CORE else smoothstep(
+        (FAIR_Y_OUT - ry) / (FAIR_Y_OUT - FAIR_Y_CORE))
+    seal = smoothstep(xc / 0.05) * smoothstep((1.0 - xc) / 0.05)
+    if surf == "u":
+        off = max(_pbump(px, 0.17, 0.34, 0.40, 0.100),    # dorsal hump (back)
+                  _pbump(px, 0.70, 0.12, 0.34, 0.108))    # canopy (head)
+        return off * fy * seal
+    off = max(_pbump(px, 0.12, 0.26, 0.34, 0.140),        # belly pod (chest)
+              _pbump(px, 0.70, 0.07, 0.18, 0.055))        # chin clearance (jaw)
+    return -off * fy * seal
+
+
 def phase_progress(t):
     """Subsystem progress fractions in [0,1] at sim time t (phases overlap)."""
     return {
@@ -368,6 +408,22 @@ RIB_GAP = 0.0007           # inter-wrap gap on the spool
 RIB_COIL_R = 0.011         # coil inner radius at the spar hub (ε=t/2r ≈ 0.6%)
 N_RIB_STN = 22             # material stations along each rib (coil + deployed)
 BILLOW = 0.14              # skin bulge between ribs (fraction of thickness)
+# Ribs live OUTBOARD of the centre-body so they never run through the pilot;
+# 9/side spread across this span fraction (of the half-span).
+RIB_ETA_IN, RIB_ETA_OUT = 0.20, 0.96
+
+# Centre-body / canopy fairing -- the wing's centre section blends into a
+# fuselage that ENCLOSES the suited pilot.  A human does not fit inside a 12%
+# airfoil (max half-thickness 0.088 m vs torso half-depth 0.118 m + head), so
+# the centre upper surface lifts into a canopy over the head + a dorsal hump
+# over the back, and the lower surface drops into a belly pod under the chest;
+# it fairs back to the clean airfoil by FAIR_Y_OUT and seals to zero at the
+# LE/TE.  Sizes are derived from the pilot envelope (analysis-verified: nothing
+# pierces the skin).  This is what makes the wing read as a worn wingsuit
+# rather than a human jammed through a separate wing.
+FAIR_Y_CORE = 0.26         # full-strength fairing within this half-span (m)
+FAIR_Y_OUT = 0.74          # blends to the clean airfoil by here; reaches the
+                           # first rib station so there's no unsupported seam
 
 # ---- Pilot anthropometry — FIXED bone lengths (NASA-STD-3000 / ANSUR II, m) -
 # The human is a rigid-proportion body; it NEVER stretches.  Deployment rotates
@@ -611,7 +667,7 @@ class Mesh:
         hs = half_span(prog)
         # furled wing reads smooth; billow develops as the skin tensions out
         billow_eff = BILLOW * min(1.0, hs / HALF_SPAN_FULL)
-        rib_pos = [(k + 0.5) / N_RIBS for k in range(N_RIBS)]
+        rib_pos = [rib_eta_frac(k) for k in range(N_RIBS)]
 
         def bay_gate(rel):
             if not rib_f:
@@ -635,15 +691,23 @@ class Mesh:
             eta = min(abs(y) / HALF_SPAN_FULL, 1.0)
             twist = -math.radians(PLAN_WASHOUT_DEG) * eta
             qc = (le[0] - 0.25 * c, y, Z_WING)
-            # scallop pinches AT each rib station (rel=(k+.5)/N_RIBS) and bulges
-            # between; gated so the bay fills only after both its ribs snap.
-            scallop = 1.0 + billow_eff * bay_gate(rel) * math.cos(math.pi * rel * N_RIBS) ** 2
+            ay = abs(y)
+            # no rib scallop over the smooth centre-body (the fuselage fairing
+            # owns that span); it ramps in outboard of the cockpit where the
+            # ribs actually live.
+            bill_gate = 0.0 if ay <= FAIR_Y_CORE else smoothstep(
+                (ay - FAIR_Y_CORE) / (FAIR_Y_OUT - FAIR_Y_CORE))
+            # scallop pinches AT each rib station and bulges between; gated so
+            # the bay fills only after both its ribs snap.
+            scallop = 1.0 + billow_eff * bill_gate * bay_gate(rel) * \
+                math.cos(math.pi * rel * N_RIBS) ** 2
             for j in range(nc):
                 xc = 0.5 * (1 - math.cos(math.pi * j / (nc - 1)))
                 up, lo = naca4_surface(xc, AF_M, AF_P, AF_T_SKIN)
                 off = up if surf == "u" else lo
                 px = le[0] - xc * c
-                pz = Z_WING + off * c * scallop
+                # centre-body / canopy fairing encloses the suited pilot
+                pz = Z_WING + off * c * scallop + center_fair(px, xc, y, surf)
                 self.verts.append(_rot_y((px, y, pz), qc, twist))
                 if meta is not None:
                     meta.append((eta, xc, surf))
@@ -737,7 +801,7 @@ class Mesh:
 # =============================================================================
 
 SLOTS = ["suit", "helmet", "cfrp", "skin", "wingsuit", "tail", "rib",
-         "reserve", "fcs", "flaperon", "metal"]
+         "reserve", "fcs", "flaperon", "metal", "cuff"]
 
 
 def _pilot_fk(prog, lean=(0.0, 0.0, 0.0)):
@@ -776,9 +840,12 @@ def _pilot_fk(prog, lean=(0.0, 0.0, 0.0)):
     N["hip_c"] = hip_c
     N["torso_up"] = sh_c      # aliases used by the CFRP / reserve / FCS sections
     N["hip_mid"] = hip_c
-    # head rides higher so a recognisable head silhouette breaches the canopy
-    N["neck"] = vadd(sh_c, (NECK_LEN * 0.6, 0, 0.07))
-    N["head"] = vadd((X_SHOULDER + NECK_LEN + HEAD_LEN * 0.4, 0.0, Z_BODY + 0.11), lean)
+    # Head in a natural prone attitude: FORWARD (looking ahead over the nose)
+    # and LOW — crown roughly at spine level — so it tucks UNDER the canopy
+    # fairing instead of breaching the wing skin. The canopy bulge in
+    # center_fair() is sized to clear this head with margin.
+    N["neck"] = vadd(sh_c, (0.07, 0, 0.040))           # sh_c already carries lean
+    N["head"] = vadd((X_SHOULDER + 0.29, 0.0, Z_BODY + 0.048), lean)
     return N
 
 
@@ -797,7 +864,9 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
 
     def end(name, fs, vs):
         if f0:
-            mat_ranges[name] = (fs, len(faces))
+            # accumulate (a material can be emitted from several blocks, e.g. the
+            # lower wing membrane + the arm-wing both use 'wingsuit')
+            mat_ranges.setdefault(name, []).append((fs, len(faces)))
             vert_ranges.setdefault(name, []).append((vs, len(m.verts)))
 
     sk_loop = airfoil_loop(N_CHORD, AF_T_SKIN)
@@ -817,16 +886,18 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
     m.loft(torso_line, torso_rad, faces)
     # deltoid bulges bridge the torso to the arm roots
     for s in ("R", "L"):
-        m.sphere(N[s]["sh"], 0.066, faces)
+        m.sphere(N[s]["sh"], 0.056, faces)
     # limbs: fixed-length lofts (shoulder -> elbow -> wrist -> hand; hip -> knee
     # -> ankle -> foot) with anatomical taper. Hand/foot widen+flatten (paddle).
+    # Arms are slim (suited limbs along the LE, not poles) with the arm-wing
+    # membrane (section 2b) webbing them into the body.
     for s in ("R", "L"):
         n = N[s]
         m.loft([n["sh"], n["el"], n["wr"], n["hand"]],
-               [(0.060, 0.060), (0.046, 0.046), (0.036, 0.034), (0.040, 0.018)],
+               [(0.050, 0.050), (0.040, 0.040), (0.032, 0.030), (0.040, 0.018)],
                faces)
         m.loft([n["hip"], n["kn"], n["ank"], n["foot"]],
-               [(0.092, 0.092), (0.060, 0.060), (0.046, 0.044), (0.050, 0.022)],
+               [(0.072, 0.072), (0.050, 0.050), (0.040, 0.038), (0.050, 0.020)],
                faces)
     end("suit", fs, vs)
 
@@ -925,15 +996,39 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
     m.wing_surface(prog, "l", faces, None, rib_f)
     end("wingsuit", fs, vs)
 
-    # ---- (2b) TAIL MEMBRANE — the leg-wing webbed between the legs ----
-    # The pilot's legs splay aft to form the rear stabiliser: a fabric membrane
-    # is stretched between the two legs (crotch -> between the feet), behind the
-    # main wing's centre TE. This is the empennage the legs control for pitch.
+    # ---- (2b) ARM-WING MEMBRANE — the wingsuit's defining feature ----
+    # Fabric webbed from each arm (shoulder->wrist, the leading edge) to the
+    # torso flank (shoulder->hip, trailing in toward the body) and a little aft
+    # of the hip. This is the wingsuit arm-wing that ties the limbs into the
+    # body as ONE worn garment instead of bare tubes. It furls toward the body
+    # when stowed (camber scales with spread) and shares the lower 'wingsuit'
+    # membrane material so the suit reads continuous.
     fs, vs = _begin(faces, m)
-    crotch = vadd(N["hip_c"], (-0.04, 0, -0.01))
-    m.cambered_panel([crotch, N["R"]["kn"], N["R"]["ank"], N["R"]["foot"]],
-                     [crotch, N["L"]["kn"], N["L"]["ank"], N["L"]["foot"]],
-                     n_long=12, n_cross=11, camber=0.12, faces=faces)
+    sp = prog["spread"]
+    for s in ("R", "L"):
+        sgn = 1.0 if s == "R" else -1.0
+        n = N[s]
+        arm_rail = [n["sh"], n["el"], n["wr"], n["hand"]]
+        body_rail = [N["sh_c"], vlerp(N["sh_c"], N["hip_c"], 0.45),
+                     n["hip"], vadd(n["hip"], (-0.18, sgn * 0.05, -0.01))]
+        m.cambered_panel(arm_rail, body_rail, n_long=10, n_cross=9,
+                         camber=0.05 * sp, faces=faces)
+    end("wingsuit", fs, vs)
+
+    # ---- (2c) TAIL / LEG-WING MEMBRANE — the lower body skinned into a tail --
+    # The pilot's legs splay aft to form the rear stabiliser. The leg-wing fabric
+    # ROOTS into the fuselage underside (just aft of the belly pod) and fans
+    # hip-to-hip out to between the feet, so the whole lower body reads as one
+    # continuous tail surface — the legs are the spars of it, not bare struts.
+    # This is the empennage the legs control for pitch. (Per-side roots avoid the
+    # zero-width pinch a single shared crotch point would create.)
+    fs, vs = _begin(faces, m)
+    taproot_r = vadd(N["hip_c"], (0.06, 0.055, -0.02))
+    taproot_l = vadd(N["hip_c"], (0.06, -0.055, -0.02))
+    m.cambered_panel(
+        [taproot_r, N["R"]["hip"], N["R"]["kn"], N["R"]["ank"], N["R"]["foot"]],
+        [taproot_l, N["L"]["hip"], N["L"]["kn"], N["L"]["ank"], N["L"]["foot"]],
+        n_long=14, n_cross=11, camber=0.09, faces=faces)
     end("tail", fs, vs)
 
     # ---- (3) BISTABLE RIBS (9/side) — real coil-unroll on Phase C ----
@@ -945,7 +1040,7 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
     for s in ("R", "L"):
         sgn = 1.0 if s == "R" else -1.0
         for k in range(N_RIBS):
-            eta = (k + 0.5) / N_RIBS
+            eta = rib_eta_frac(k)               # outboard of the centre-body
             m.rib_unroll(sgn * eta * hs, prog, rib_f[k], 0.006, faces)
     end("rib", fs, vs)
 
@@ -1000,15 +1095,22 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
         # short pneumatic actuator across each spar hinge (drives Phase-A sweep)
         m.tube(shoulder_yoke, vadd(n["sh"], below), 0.018, 0.015, faces)
         m.tube(hip_yoke, vadd(n["hip"], below), 0.018, 0.015, faces)
-        # cuffs: bands that strap the arm/leg to the spar (BRIEF #2 bonded sleeve)
-        def cuff(a, b_, frac, r):
-            # a thin strap just proud of the limb, clamping it to the spar below
-            c = vadd(vlerp(a, b_, frac), (0, 0, -0.018))
-            d = vnorm(vsub(b_, a))
-            m.tube(vadd(c, vscale(d, -0.012)), vadd(c, vscale(d, 0.012)), r, r, faces)
-        cuff(n["sh"], n["el"], 0.6, 0.062); cuff(n["el"], n["wr"], 0.5, 0.05)
-        cuff(n["hip"], n["kn"], 0.6, 0.072); cuff(n["kn"], n["ank"], 0.5, 0.058)
     end("metal", fs, vs)
+
+    # ---- FABRIC CUFFS — wrist/ankle bands that read as part of the suit (a
+    #      sewn sleeve clamping the limb to the spar), not chrome clamps ----
+    fs, vs = _begin(faces, m)
+    for s in ("R", "L"):
+        n = N[s]
+
+        def cuff(a, b_, frac, r):
+            c = vadd(vlerp(a, b_, frac), (0, 0, -0.014))
+            d = vnorm(vsub(b_, a))
+            m.tube(vadd(c, vscale(d, -0.015)), vadd(c, vscale(d, 0.015)), r, r, faces)
+        cuff(n["sh"], n["el"], 0.62, 0.058); cuff(n["el"], n["wr"], 0.5, 0.046)
+        cuff(n["el"], n["wr"], 0.92, 0.040)             # second wrist band
+        cuff(n["hip"], n["kn"], 0.6, 0.066); cuff(n["kn"], n["ank"], 0.5, 0.052)
+    end("cuff", fs, vs)
 
     return m.verts
 
@@ -1284,12 +1386,15 @@ def build_morph_object(traj):
     bpy.context.collection.objects.link(obj)
 
     mats = {
-        "suit": make_material("suit", (0.13, 0.15, 0.21), metallic=0.05, roughness=0.66),
-        "helmet": make_material("helmet", (0.86, 0.88, 0.92), metallic=0.3, roughness=0.28),
+        # one fabric family for the whole worn garment: body suit, wingsuit
+        # membrane, arm-wing, tail and cuffs share a tone so it reads as ONE suit
+        "suit": make_material("suit", (0.16, 0.18, 0.23), metallic=0.02, roughness=0.80),
+        "helmet": make_material("helmet", (0.24, 0.28, 0.36), metallic=0.25, roughness=0.30),
         "cfrp": make_material("cfrp", (0.025, 0.025, 0.032), metallic=0.75, roughness=0.26),
         "skin": make_material("skin", (0.10, 0.34, 0.85), roughness=0.30, alpha=0.32),
-        "wingsuit": make_material("wingsuit", (0.20, 0.21, 0.24), roughness=0.78, alpha=0.82),
-        "tail": make_material("tail", (0.16, 0.44, 0.88), roughness=0.32, alpha=0.42),
+        "wingsuit": make_material("wingsuit", (0.17, 0.19, 0.24), roughness=0.80, alpha=0.86),
+        "tail": make_material("tail", (0.17, 0.19, 0.24), roughness=0.80, alpha=0.62),
+        "cuff": make_material("cuff", (0.11, 0.12, 0.16), roughness=0.86),
         "rib": make_material("rib", (0.06, 0.07, 0.09), metallic=0.5, roughness=0.4),
         "reserve": make_material("reserve", (0.22, 0.20, 0.17), roughness=0.7),
         "fcs": make_material("fcs", (0.05, 0.18, 0.10), metallic=0.4, roughness=0.5,
@@ -1300,10 +1405,11 @@ def build_morph_object(traj):
     slot_index = {name: i for i, name in enumerate(SLOTS)}
     for name in SLOTS:
         mesh.materials.append(mats[name])
-    for name, (lo, hi) in mat_ranges.items():
-        for fi in range(lo, hi):
-            if fi < len(mesh.polygons):
-                mesh.polygons[fi].material_index = slot_index[name]
+    for name, ranges in mat_ranges.items():
+        for lo, hi in ranges:
+            for fi in range(lo, hi):
+                if fi < len(mesh.polygons):
+                    mesh.polygons[fi].material_index = slot_index[name]
 
     obj.shape_key_add(name="frame_000", from_mix=False)
     for fi in range(1, len(frames)):
