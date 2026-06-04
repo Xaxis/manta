@@ -407,7 +407,20 @@ RIB_SHELL_T = 0.00014      # 0.14 mm shell wall
 RIB_GAP = 0.0007           # inter-wrap gap on the spool
 RIB_COIL_R = 0.011         # coil inner radius at the spar hub (ε=t/2r ≈ 0.6%)
 N_RIB_STN = 22             # material stations along each rib (coil + deployed)
-BILLOW = 0.14              # skin bulge between ribs (fraction of thickness)
+def _load_membrane_billow():
+    """Physical inter-rib skin sag (fraction of local airfoil thickness) from the
+    membrane form-finding model analysis/deployment/membrane_formfinding.py. The
+    deployed skin is a PRETENSIONED membrane, so the bay sag is tiny (~0.3% chord)
+    and the wing is a smooth controlled surface -- not a billowing canopy."""
+    try:
+        p = (Path(__file__).resolve().parent.parent
+             / "analysis" / "deployment" / "out" / "membrane_billow.json")
+        return float(json.loads(p.read_text())["billow_frac"])
+    except Exception:
+        return 0.015
+
+
+BILLOW = _load_membrane_billow()   # physics-set skin sag (was an ad-hoc 0.14)
 # Ribs live OUTBOARD of the centre-body so they never run through the pilot;
 # 9/side spread across this span fraction (of the half-span).
 RIB_ETA_IN, RIB_ETA_OUT = 0.20, 0.96
@@ -669,17 +682,20 @@ class Mesh:
         billow_eff = BILLOW * min(1.0, hs / HALF_SPAN_FULL)
         rib_pos = [rib_eta_frac(k) for k in range(N_RIBS)]
 
-        def bay_gate(rel):
-            if not rib_f:
-                return 1.0
-            if rel <= rib_pos[0]:
-                return rib_f[0]
-            if rel >= rib_pos[-1]:
-                return rib_f[-1]
+        def bay_sag(rel):
+            """Physical inter-rib membrane sag SHAPE in [0,1]: pinned (0) at the
+            ACTUAL rib stations, peaking mid-bay (sin^2 ~ the parabolic funicular
+            from analysis/deployment/membrane_formfinding.py). Outboard of the
+            last rib and inboard of the first there is no bay, so 0. Each bay is
+            gated by min(f_k,f_{k+1}) so it only tensions once both ribs snap."""
+            if rel <= rib_pos[0] or rel >= rib_pos[-1]:
+                return 0.0
             for k in range(N_RIBS - 1):
                 if rib_pos[k] <= rel <= rib_pos[k + 1]:
-                    return min(rib_f[k], rib_f[k + 1])
-            return rib_f[-1]
+                    u = (rel - rib_pos[k]) / (rib_pos[k + 1] - rib_pos[k] or 1e-9)
+                    gate = min(rib_f[k], rib_f[k + 1]) if rib_f else 1.0
+                    return gate * math.sin(math.pi * u) ** 2
+            return 0.0
 
         base = len(self.verts)
         for i in range(ns):
@@ -697,10 +713,9 @@ class Mesh:
             # ribs actually live.
             bill_gate = 0.0 if ay <= FAIR_Y_CORE else smoothstep(
                 (ay - FAIR_Y_CORE) / (FAIR_Y_OUT - FAIR_Y_CORE))
-            # scallop pinches AT each rib station and bulges between; gated so
-            # the bay fills only after both its ribs snap.
-            scallop = 1.0 + billow_eff * bill_gate * bay_gate(rel) * \
-                math.cos(math.pi * rel * N_RIBS) ** 2
+            # physical membrane sag: pinned at the ribs, ~0.3% chord mid-bay, so
+            # the deployed wing is a smooth CONTROLLED surface, not a canopy.
+            scallop = 1.0 + billow_eff * bill_gate * bay_sag(rel)
             for j in range(nc):
                 xc = 0.5 * (1 - math.cos(math.pi * j / (nc - 1)))
                 up, lo = naca4_surface(xc, AF_M, AF_P, AF_T_SKIN)

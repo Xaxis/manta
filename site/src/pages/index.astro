@@ -188,13 +188,20 @@ import Viewer from "../components/viewer/Viewer.tsx";
     id="deployment"
     eyebrow="Deliverables #4 + #5"
     title="Deployment + symmetry budget"
-    intro="The wing's chordwise shape is set by nine bistable rolled-composite ribs per side that unroll from coils at the spar (Phase C) — a strain-energy ROM gives the snap time and soft-latch velocity. The state machine implements every gate and abort path; a 50,000-trial Monte Carlo characterizes the symmetry budget, where the CO₂ contributor busts the 10 ms 3-σ BRIEF gate alone."
+    intro="The wing's chordwise shape is set by nine bistable rolled-composite ribs per side that unroll from coils at the spar (Phase C) — a strain-energy ROM gives the snap time and soft-latch velocity, and a membrane form-finding model shows the deployment tensions the skin into a smooth controlled surface (0.27% waviness, well inside aero tolerance). The state machine implements every gate and abort path; a 50,000-trial Monte Carlo characterizes the symmetry budget, where the CO₂ contributor busts the 10 ms 3-σ BRIEF gate alone."
   >
     <div class="grid gap-8 md:grid-cols-2">
       <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
         <img src="/img/hero_coils.png" alt="Bistable ribs unrolling from coils (x-ray view)" class="w-full" />
         <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">
           Phase C, membranes ghosted: the nine ribs/side (orange) caught mid-unroll — inboard ribs already snapped onto the airfoil, outboard still curled near the spar. The root→tip unfurl front is the deployment schedule the model animates (<code class="mono">sim/build.py: rib_unroll</code>).
+        </figcaption>
+      </figure>
+
+      <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
+        <img src="/img/membrane_sag.png" alt="Skin membrane form-finding — bay sag and surface waviness" class="w-full" />
+        <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">
+          Membrane form-finding (<code class="mono">analysis/deployment/membrane_formfinding.py</code>): the deployment pretensions the skin (~2.2 kN/m), so the worst inter-rib sag is ≈1.9 mm even at 3 g — a surface waviness of 0.16–0.27% chord, inside the 0.4% aero tolerance. The deployed wing is a smooth <em>controlled</em> surface, not a billowing canopy; the model now renders this physical sag (≈1.5% of thickness), not an arbitrary bulge.
         </figcaption>
       </figure>
 

@@ -174,6 +174,32 @@ This per-rib snap dispersion is the `Tape-spring snap dispersion (9 ribs/side)`
 contributor (σ = 1.2 ms) in the symmetry table below; the nominal per-rib snap
 time and soft-latch velocity are now sourced from this ROM rather than assumed.
 
+## Phase D: skin membrane form-finding (deployment → controlled surface)
+
+The deployment doesn't just unfold the structure — it has to leave a *fair,
+controllable* aerodynamic surface. The skin is a **pretensioned membrane**
+stretched over the bistable ribs: the telescoping booms pull it taut spanwise
+and the rib snap tensions it chordwise. The bay between two ribs then sags under
+the aerodynamic pressure, and that sag is the waviness off the design airfoil.
+
+From membrane statics (`analysis/deployment/membrane_formfinding.py`,
+`δ = q·s²/(8·N)`, cross-checked by discrete relaxation), with the deployment
+delivering ~2.2 kN/m of skin pretension:
+
+| Quantity | Value |
+|---|---|
+| Net skin pressure (1 g / 3 g) | 158 / 475 Pa |
+| Worst inter-rib sag @ 3 g | ≈ 1.9 mm |
+| **Surface waviness δ/c @ 3 g** | **0.16 – 0.27 %** (inside the 0.4 % tol) |
+| Skin in tension (wrinkle-free) | yes |
+
+So the deployed wing is a **smooth controlled surface** — and a clean
+trailing-edge flaperon — not a billowing ram-air canopy. The pretension is
+itself a deployment requirement: the booms + rib snap must deliver it for the
+surface to come out fair, which links the deployment mechanism directly to the
+final aerodynamic quality. The 3D model (`sim/build.py`) renders this physical
+sag (≈1.5 % of section thickness), replacing the earlier ad-hoc 14 % bulge.
+
 ## Symmetry budget closure
 
 The Monte-Carlo error stack-up
@@ -262,6 +288,10 @@ PYTHONPATH=. .venv/bin/python -m analysis.deployment.symmetry_budget
 
 # Bistable rib unroll physics (snap time, soft-latch velocity, blossoming guard)
 PYTHONPATH=. .venv/bin/python analysis/deployment/rib_deploy_rom.py
+
+# Skin membrane form-finding (deployment tensions the skin into a controlled
+# surface: bay sag, waviness vs aero tolerance, wrinkle-free check)
+PYTHONPATH=. .venv/bin/python analysis/deployment/membrane_formfinding.py
 
 # Tests
 PYTHONPATH=. .venv/bin/python -m pytest analysis/deployment/tests/ -v
