@@ -801,7 +801,6 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
             vert_ranges.setdefault(name, []).append((vs, len(m.verts)))
 
     sk_loop = airfoil_loop(N_CHORD, AF_T_SKIN)
-    rib_loop = airfoil_loop(N_CHORD, AF_T_SKIN * 1.04)
 
     # ---- (0) PILOT — fixed-proportion anatomical body (NASA-STD-3000) ----
     fs, vs = _begin(faces, m)
