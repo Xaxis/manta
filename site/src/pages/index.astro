@@ -16,7 +16,7 @@ import Viewer from "../components/viewer/Viewer.tsx";
         A wingsuit-extension rigid wing.
       </h1>
       <p class="mt-6 max-w-3xl text-lg md:text-xl text-zinc-400 leading-relaxed">
-        Pilot wears a fitted wingsuit-derivative harness with an integrated CFRP spine yoke. Arm-aligned spars hinge from the spine and brace into position as the pilot spreads. Telescoping tip extensions snap out from the wrists and an ankle-rooted TE spar deploys from the body — wingsuit muscle-memory, hang-glider-class glide. Deployable rapidly in flight or on the ground.
+        Pilot wears a fitted wingsuit-derivative harness with an integrated CFRP spine yoke. Arm-aligned rigid spars hinge from the spine and brace into position as the pilot spreads; telescoping tip extensions snap out from the wrists and an ankle-rooted TE spar deploys from the body. The wing's chordwise shape is set by nine <em>bistable rolled-composite ribs</em> per side that unroll from coils at the spar and self-latch onto the airfoil — sprung structure, not telescoping struts. Wingsuit muscle-memory, hang-glider-class glide. Deployable rapidly in flight or on the ground.
       </p>
       <p class="mt-4 max-w-3xl text-base text-zinc-500">
         This is a real flight vehicle program. Treat it as such.
@@ -31,7 +31,7 @@ import Viewer from "../components/viewer/Viewer.tsx";
       <figure class="mt-12 rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
         <img src="/img/hero_deployed.png" alt="MANTA deployed — arm-braced wing with telescoping tips" class="w-full" />
         <figcaption class="px-6 py-3 text-xs text-zinc-500 border-t border-zinc-800">
-          Deployed configuration. Pilot is the central fuselage; arms and the LE spar form the swept leading edge to the wrist; telescoping wrist booms extend to the wingtip; a body-mounted TE spar telescopes spanwise from a hub at the lower back. Ribs and DCF skin span between the LE and TE.
+          Deployed configuration. Pilot is the central fuselage; arms and the LE spar form the swept leading edge to the wrist; telescoping wrist booms extend to the wingtip; a body-mounted TE spar telescopes spanwise from a hub at the lower back. Nine bistable rolled-composite ribs per side unroll from coils at the LE spar to set the airfoil; the DCF skin tensions bay-by-bay behind them.
         </figcaption>
       </figure>
     </div>
@@ -42,13 +42,13 @@ import Viewer from "../components/viewer/Viewer.tsx";
     id="model"
     eyebrow="Live deployment"
     title="Deploy it — then actually fly it."
-    intro="Drag to orbit. Scrub the slider through the deployment, or hit Play (Phase A: fixed-length limbs rotate out; Phase B: CO₂ telescopes the booms to full span). Then hit ‘Fly it’ and steer with the keyboard — ← → roll, ↑ ↓ pitch — to actually fly it over procedural terrain under a sky. A real reduced-order flight model runs in your browser: the equations of motion integrate airspeed, bank, load factor and angle-of-attack live, the flaperons deflect and the pilot weight-shifts as you input, the craft banks into turns and glides down toward the hills, and the α-limiter clamps the AoA so you can't stall it. ‘Flow field’ shows the surface pressure + streamlines."
+    intro="Drag to orbit. Scrub the slider through the deployment, or hit Play (Phase A: fixed-length limbs rotate out; Phase B: CO₂ telescopes the booms to full span; Phase C: nine bistable ribs per side unroll from their coils root→tip and snap onto the airfoil; Phase D: the skin tensions bay-by-bay behind the unfurl front). Then hit ‘Fly it’ and steer with the keyboard — ← → roll, ↑ ↓ pitch — to actually fly it over procedural terrain under a sky. A real reduced-order flight model runs in your browser: the equations of motion integrate airspeed, bank, load factor and angle-of-attack live, the flaperons deflect and the pilot weight-shifts as you input, the craft banks into turns and glides down toward the hills, and the α-limiter clamps the AoA so you can't stall it. ‘Flow field’ shows the surface pressure + streamlines."
   >
     <div class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-950">
       <Viewer client:only="react" height={620} />
     </div>
     <p class="mt-3 text-xs text-zinc-500">
-      Baked by <code class="mono">sim/build.py</code>: a deployment morph plus four control-basis morph targets (roll L/R, pitch up/down) the viewer blends from your live input. The flight model in <code class="mono">control.json</code> uses the resized-planform aero and the documented stability/control derivatives (<code class="mono">analysis/flightdynamics/</code>, <code class="mono">docs/04</code>) — point-mass EOM with bank-to-turn + short-period AoA + the alpha-limiter. The pilot is a fixed-proportion human inside a double-surface airfoil; the spars run inside the fabric.
+      Baked by <code class="mono">sim/build.py</code>: a deployment morph plus four control-basis morph targets (roll L/R, pitch up/down) the viewer blends from your live input. Each rib is a real coil→airfoil unroll whose easing is the integrated strain-energy ODE from <code class="mono">analysis/deployment/rib_deploy_rom.py</code> — the animation is physics-driven, not an ad-hoc curve. The flight model in <code class="mono">control.json</code> uses the resized-planform aero and the documented stability/control derivatives (<code class="mono">analysis/flightdynamics/</code>, <code class="mono">docs/04</code>) — point-mass EOM with bank-to-turn + short-period AoA + the alpha-limiter. The pilot is a fixed-proportion human inside a double-surface airfoil; the spars run inside the fabric.
     </p>
     <figure class="mt-6 rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
       <img src="/img/hero_control.png" alt="MANTA in a banked turn — flaperons deflected, pilot weight-shifted" class="w-full" />
@@ -78,9 +78,10 @@ import Viewer from "../components/viewer/Viewer.tsx";
       <MetricCard label="Static margin" value="5.6 %" unit="MAC" tone="warn" note="Trim study at 7° washout. But the binding CG-based margin is ~2.7% (washout-independent) — tight, FCS-managed. Alpha-limiter + yaw damper now mandatory." />
       <MetricCard label="(L/D)ₘₐₓ" value="11.6" note="At V ≈ 18 m/s, nominal body CdA = 0.20 m²." />
       <MetricCard label="Dutch-roll damping ζ" value="0.17" tone="warn" note="At V_bg, resized planform (was 0.29). Level 2/3 — the artificial yaw damper is now mandatory, not just recommended." />
-      <MetricCard label="Deployment time" value="≈ 0.6" unit="s" note="Phase A arm spread + Phase B boom telescope + Phase D skin tension." />
+      <MetricCard label="Deployment time" value="≈ 0.6" unit="s" note="Phase A arm spread + Phase B boom telescope + Phase C bistable rib unroll (≈0.69 s/rib, soft 1.96 m/s latch — rib_deploy_rom.py) + Phase D skin tension." />
       <MetricCard label="LE spar root OD" value="67" unit="mm" tone="warn" note="Bending-sized for the resized wing (3 g limit, SF≥1.5). Smaller than the old 73 mm — shorter span → less root moment." />
       <MetricCard label="Wrist tip extension" value="2.40" unit="m" note="3-stage telescoping CFRP; CO₂-driven. Shorter boom after the resize." />
+      <MetricCard label="Rib coil strain ε = t/2R" value="0.64" unit="%" note="9 bistable rolled-composite ribs/side, 0.14 mm thin-ply HSC carbon wound to an 11 mm coil — within the ~1% allowable. Strain-energy drive 195 mN; rate-controlled hub prevents blossoming (passive friction holds only 0.13×)." />
       <MetricCard label="Symmetry 3-σ |Δt|" value="16.3" unit="ms" tone="warn" note="vs. BRIEF 10 ms gate — locked architecture FAILS. Active modulation closes it at 8.1 ms." />
       <MetricCard label="Pilot 50 mm CG shift" value="3.6 %" unit="MAC" tone="warn" note="≈ 75% of the static margin on the smaller wing (MAC shrank to 1.095 m). ~3 cm aft and the wing goes neutral — alpha limiter mandatory." />
       <MetricCard label="Tests" value="27 / 27" tone="good" note="Across analysis/ and fcs/. make test reproduces locally." />
@@ -187,9 +188,23 @@ import Viewer from "../components/viewer/Viewer.tsx";
     id="deployment"
     eyebrow="Deliverables #4 + #5"
     title="Deployment + symmetry budget"
-    intro="State machine implements every gate and abort path; 50,000-trial Monte Carlo characterizes the symmetry budget. The CO₂ contributor dominates and busts the 10 ms 3-σ BRIEF gate alone."
+    intro="The wing's chordwise shape is set by nine bistable rolled-composite ribs per side that unroll from coils at the spar (Phase C) — a strain-energy ROM gives the snap time and soft-latch velocity. The state machine implements every gate and abort path; a 50,000-trial Monte Carlo characterizes the symmetry budget, where the CO₂ contributor busts the 10 ms 3-σ BRIEF gate alone."
   >
     <div class="grid gap-8 md:grid-cols-2">
+      <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
+        <img src="/img/hero_coils.png" alt="Bistable ribs unrolling from coils (x-ray view)" class="w-full" />
+        <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">
+          Phase C, membranes ghosted: the nine ribs/side (orange) caught mid-unroll — inboard ribs already snapped onto the airfoil, outboard still curled near the spar. The root→tip unfurl front is the deployment schedule the model animates (<code class="mono">sim/build.py: rib_unroll</code>).
+        </figcaption>
+      </figure>
+
+      <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
+        <img src="/img/rib_deploy.png" alt="Rib deployment ROM — deploy fraction and rate vs time" class="w-full" />
+        <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">
+          Strain-energy ROM (<code class="mono">analysis/deployment/rib_deploy_rom.py</code>): each rib snaps coil→latched airfoil in ≈0.69 s under a constant 195 mN Seffen–Pellegrino propagation force; the damped hub bleeds the stroke to a soft 1.96 m/s latch and prevents blossoming (passive friction holds only 0.13× the drive).
+        </figcaption>
+      </figure>
+
       <figure class="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30">
         <img src="/img/symmetry_histogram.png" alt="Symmetry budget histogram" class="w-full" />
         <figcaption class="px-5 py-3 text-xs text-zinc-500 border-t border-zinc-800">

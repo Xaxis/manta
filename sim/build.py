@@ -154,6 +154,12 @@ DURATION_S = 0.6
 SPREAD_DUR = 0.40
 TIP_START, TIP_DUR = 0.20, 0.40       # completes at t = 0.60 (last frame)
 RIB_START, RIB_DUR = 0.34, 0.24
+# Per-rib bistable unroll (Phase C): each rib's coil releases as the spar sweeps
+# past it, so the unfurl front travels root->tip. RIB_SNAP_DUR is the per-rib
+# unroll window in NORMALIZED deploy time; the unroll EASING across it is the
+# integrated strain-energy ODE (rib_ease, from analysis/deployment/rib_deploy_rom.py,
+# physical snap ~0.69 s/rib, soft 1.96 m/s latch) sampled into the animation.
+RIB_STAGGER, RIB_SNAP_DUR = 0.013, 0.06
 FLAP_START, FLAP_DUR = 0.34, 0.26
 
 
@@ -164,6 +170,35 @@ def smoothstep(t):
 
 def lerp(a, b, t):
     return a * (1 - t) + b * t
+
+
+def _load_rib_profile():
+    """Normalized rib unroll easing (s vs normalized snap-time) integrated by the
+    strain-energy ROM analysis/deployment/rib_deploy_rom.py. None if not built."""
+    try:
+        p = (Path(__file__).resolve().parent.parent
+             / "analysis" / "deployment" / "out" / "rib_profile.json")
+        return json.loads(p.read_text())["s"]
+    except Exception:
+        return None
+
+
+RIB_PROFILE = _load_rib_profile()
+
+
+def rib_ease(x):
+    """Per-rib unroll fraction at normalized snap-time x, sampled from the
+    physics ROM profile (the integrated bistable strain-energy ODE). Falls back
+    to a smoothstep if the ROM hasn't been run."""
+    x = max(0.0, min(1.0, x))
+    if RIB_PROFILE:
+        n = len(RIB_PROFILE)
+        u = x * (n - 1)
+        i = int(u)
+        if i >= n - 1:
+            return RIB_PROFILE[-1]
+        return RIB_PROFILE[i] * (1 - (u - i)) + RIB_PROFILE[i + 1] * (u - i)
+    return smoothstep(x)
 
 
 def phase_progress(t):
@@ -327,6 +362,11 @@ def airfoil_loop(n_chord, t):
 N_SPAN_HALF = 36           # stations per half (skin); >=4 samples per rib-bay
                            # scallop period (9 bays) so cells read crisply
 N_RIBS = 9                 # bistable ribs per side
+# bistable rolled-composite rib coil (thin-ply HSC carbon, ACS3/CTM-class):
+RIB_SHELL_T = 0.00014      # 0.14 mm shell wall
+RIB_GAP = 0.0007           # inter-wrap gap on the spool
+RIB_COIL_R = 0.011         # coil inner radius at the spar hub (ε=t/2r ≈ 0.6%)
+N_RIB_STN = 22             # material stations along each rib (coil + deployed)
 BILLOW = 0.14              # skin bulge between ribs (fraction of thickness)
 
 # ---- Pilot anthropometry — FIXED bone lengths (NASA-STD-3000 / ANSUR II, m) -
@@ -555,27 +595,49 @@ class Mesh:
                 faces.append((c0, rings[0] + kn, rings[0] + k))
                 faces.append((c1, rings[-1] + k, rings[-1] + kn))
 
-    def wing_surface(self, prog, surf, faces=None, meta=None):
+    def wing_surface(self, prog, surf, faces=None, meta=None, rib_f=None):
         """ONE face of the cambered double-surface wing, tip-to-tip. surf='u'
         is the upper deployed-wing skin; surf='l' is the lower 'wingsuit'
         membrane. The two surfaces share the LE (xc=0) and TE (xc=1) verts so
         they meet seamlessly into a closed airfoil with the pilot + spars inside
-        (a ram-air / paraglider-style double-surface, not a single sheet)."""
+        (a ram-air / paraglider-style double-surface, not a single sheet).
+
+        rib_f (per-rib unroll fractions) gates the billow PER BAY: a bay's
+        membrane only tensions into its scallop once BOTH bounding ribs have
+        snapped (min(f_k, f_{k+1})), so the skin fills bay-by-bay behind the
+        root->tip unfurl front instead of all at once."""
         ns = 2 * N_SPAN_HALF + 1
         nc = N_CHORD
         hs = half_span(prog)
         # furled wing reads smooth; billow develops as the skin tensions out
         billow_eff = BILLOW * min(1.0, hs / HALF_SPAN_FULL)
+        rib_pos = [(k + 0.5) / N_RIBS for k in range(N_RIBS)]
+
+        def bay_gate(rel):
+            if not rib_f:
+                return 1.0
+            if rel <= rib_pos[0]:
+                return rib_f[0]
+            if rel >= rib_pos[-1]:
+                return rib_f[-1]
+            for k in range(N_RIBS - 1):
+                if rib_pos[k] <= rel <= rib_pos[k + 1]:
+                    return min(rib_f[k], rib_f[k + 1])
+            return rib_f[-1]
+
         base = len(self.verts)
         for i in range(ns):
             frac = (i / (ns - 1)) * 2 - 1            # -1..1
             y = frac * hs
+            rel = abs(frac)                          # 0..1 along the half-span
             le = le_point(y)
             c = chord_at(y, prog)
             eta = min(abs(y) / HALF_SPAN_FULL, 1.0)
             twist = -math.radians(PLAN_WASHOUT_DEG) * eta
             qc = (le[0] - 0.25 * c, y, Z_WING)
-            scallop = 1.0 + billow_eff * math.cos(math.pi * eta * N_RIBS) ** 2
+            # scallop pinches AT each rib station (rel=(k+.5)/N_RIBS) and bulges
+            # between; gated so the bay fills only after both its ribs snap.
+            scallop = 1.0 + billow_eff * bay_gate(rel) * math.cos(math.pi * rel * N_RIBS) ** 2
             for j in range(nc):
                 xc = 0.5 * (1 - math.cos(math.pi * j / (nc - 1)))
                 up, lo = naca4_surface(xc, AF_M, AF_P, AF_T_SKIN)
@@ -597,18 +659,47 @@ class Mesh:
                     else:                       # flip winding so it faces down
                         faces.append((a, d, c2, b))
 
-    def rib(self, y, prog, loop, t_scale, span_thick, faces=None):
-        """Airfoil-profile rib as a thin extruded plate at spanwise station y."""
-        nl = len(loop)
+    def rib_unroll(self, y, prog, f, span_thick, faces=None):
+        """A bistable rolled-composite rib that UNROLLS from a packed coil at the
+        LE spar hub into a rigid airfoil rib (the real Phase-C mechanism, not a
+        thickness fake). The rib traces the airfoil UPPER surface from the LE
+        hub out to the TE. Material coordinate u ∈ [0,1]: the deployed part
+        (u ≤ f) lays on the airfoil from the advancing front (chord = f) back to
+        the hub (chord = 0); the wound part (u > f) is an Archimedean spiral at
+        the hub. The two meet at the hub (chord 0 / spiral arc 0) so the material
+        is CONTINUOUS — it pays off the coil and snaps onto the wing. Fixed
+        topology (2·N_RIB_STN verts) every frame for clean morphing."""
+        N = N_RIB_STN
+        le = le_point(y)
+        c = chord_at(y, prog) or 1e-6
+        ay = abs(y); eta = min(ay / HALF_SPAN_FULL, 1.0)
+        twist = -math.radians(PLAN_WASHOUT_DEG) * eta
+        qc = (le[0] - 0.25 * c, y, Z_WING)
+        e_chord = vnorm(vsub(te_point(y, prog), le))
+        up, _side = _orthoframe(e_chord)
+        hub = vadd(le, vscale(up, 0.012))
+        dr = 2.0 * RIB_SHELL_T + RIB_GAP
         base = len(self.verts)
-        for so in (-span_thick, span_thick):
-            pts, _ = wing_section_points(y, prog, loop, t_scale, BILLOW * 0)
-            for p in pts:
-                self.verts.append((p[0], p[1] + so, p[2]))
+        for layer in (-span_thick, span_thick):
+            for i in range(N):
+                u = i / (N - 1)
+                if u <= f:
+                    xc = f - u                                  # front -> hub
+                    off, _lo = naca4_surface(xc, AF_M, AF_P, AF_T_SKIN)
+                    px = le[0] - xc * c
+                    pz = Z_WING + off * c
+                    p = _rot_y((px, y, pz), qc, twist)
+                else:
+                    arc = (u - f) * c                           # wound length from hub
+                    theta = arc / (RIB_COIL_R * 0.9)            # tight coil
+                    r = RIB_COIL_R + (theta / (2 * math.pi)) * dr
+                    p = vadd(hub, vadd(vscale(e_chord, r * math.cos(theta)),
+                                       vscale(up, r * math.sin(theta))))
+                self.verts.append((p[0], p[1] + layer, p[2]))
         if faces is not None:
-            for k in range(nl):
-                kn = (k + 1) % nl
-                faces.append((base + k, base + kn, base + nl + kn, base + nl + k))
+            for i in range(N - 1):
+                faces.append((base + i, base + i + 1,
+                              base + N + i + 1, base + N + i))
 
     def panel(self, p00, p10, p11, p01, faces=None):
         base = len(self.verts)
@@ -812,15 +903,27 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
              [(0.024, 0.020), (0.018, 0.014), (0.012, 0.009)])
     end("cfrp", fs, vs)
 
+    # ---- per-rib bistable unroll fractions (Phase C), physics-driven ----
+    # Each rib's coil releases as the spar sweeps past it (root->tip stagger);
+    # the unroll easing is the integrated strain-energy ODE (rib_ease / the ROM
+    # analysis/deployment/rib_deploy_rom.py), not an ad-hoc curve. Computed here
+    # so the membrane billow can be gated bay-by-bay behind the unfurl front.
+    if ctrl:
+        rib_f = [1.0] * N_RIBS
+    else:
+        tt = frame["t"]
+        rib_f = [rib_ease((tt - (RIB_START + k * RIB_STAGGER)) / RIB_SNAP_DUR)
+                 for k in range(N_RIBS)]
+
     # ---- (2) WING — double surface: upper deployed skin + lower wingsuit ----
     # Upper = the lofted rigid-wing skin (carries the suction that makes lift);
     # lower = the wingsuit fabric the pilot wears. They meet seamlessly at the
     # LE/TE so the pilot + spars sit INSIDE a closed airfoil (paraglider-style).
     fs, vs = _begin(faces, m)
-    m.wing_surface(prog, "u", faces, skin_meta)
+    m.wing_surface(prog, "u", faces, skin_meta, rib_f)
     end("skin", fs, vs)
     fs, vs = _begin(faces, m)
-    m.wing_surface(prog, "l", faces)
+    m.wing_surface(prog, "l", faces, None, rib_f)
     end("wingsuit", fs, vs)
 
     # ---- (2b) TAIL MEMBRANE — the leg-wing webbed between the legs ----
@@ -834,17 +937,17 @@ def build_frame(frame, faces=None, mat_ranges=None, vert_ranges=None, skin_meta=
                      n_long=12, n_cross=11, camber=0.12, faces=faces)
     end("tail", fs, vs)
 
-    # ---- (3) BISTABLE RIBS (9 per side) — coiled stowed, snap on Phase C ----
+    # ---- (3) BISTABLE RIBS (9/side) — real coil-unroll on Phase C ----
+    # Each rib is a rolled bistable composite that pays off a coil at the spar
+    # and snaps onto the airfoil. rib_f (computed above) is the physics-driven
+    # per-rib unroll fraction; the unfurl front sweeps root->tip as the spar
+    # passes (BRIEF "as the spars pass them").
     fs, vs = _begin(faces, m)
-    # bistable tape-spring ribs are nearly flat when coiled and snap to the full
-    # airfoil profile as the spars pass them (prog["rib"]).
-    t_rib = lerp(0.018, AF_T_SKIN * 1.04, prog["rib"])
     for s in ("R", "L"):
         sgn = 1.0 if s == "R" else -1.0
         for k in range(N_RIBS):
             eta = (k + 0.5) / N_RIBS
-            y = sgn * eta * hs
-            m.rib(y, prog, rib_loop, t_rib, 0.006, faces)
+            m.rib_unroll(sgn * eta * hs, prog, rib_f[k], 0.006, faces)
     end("rib", fs, vs)
 
     # ---- (4) RESERVE CONTAINER (a low pack on the back, behind the shoulders;
@@ -1319,6 +1422,40 @@ def render_still(name, frame_idx, hide=()):
         o.hide_render = False
 
 
+def set_xray(on):
+    """Ghost the wing membranes and pop the bistable ribs, so the coil-unroll
+    structure is visible in a still (EEVEE renders the skin opaque otherwise).
+    Mutates materials only — called AFTER the GLB export, so it never touches
+    the shipped model."""
+    for nm, ghost in (("skin", 0.04), ("wingsuit", 0.04), ("tail", 0.04)):
+        mat = bpy.data.materials.get(nm)
+        if not mat:
+            continue
+        b = mat.node_tree.nodes["Principled BSDF"]
+        if on:
+            mat["_a0"] = b.inputs["Alpha"].default_value
+            b.inputs["Alpha"].default_value = ghost
+            if hasattr(mat, "surface_render_method"):
+                mat.surface_render_method = "DITHERED"
+        else:
+            if "_a0" in mat.keys():
+                b.inputs["Alpha"].default_value = mat["_a0"]
+            if hasattr(mat, "surface_render_method"):
+                mat.surface_render_method = "BLENDED"
+    rib = bpy.data.materials.get("rib")
+    if rib:
+        b = rib.node_tree.nodes["Principled BSDF"]
+        if on:
+            b.inputs["Base Color"].default_value = (0.95, 0.45, 0.05, 1.0)
+            if "Emission Color" in b.inputs:
+                b.inputs["Emission Color"].default_value = (0.9, 0.35, 0.0, 1.0)
+                b.inputs["Emission Strength"].default_value = 1.2
+        else:
+            b.inputs["Base Color"].default_value = (0.06, 0.07, 0.09, 1.0)
+            if "Emission Strength" in b.inputs:
+                b.inputs["Emission Strength"].default_value = 0.0
+
+
 def main():
     do_render = "--render" in sys.argv
     print("(1) MuJoCo deployment schedule...")
@@ -1362,8 +1499,15 @@ def main():
         plane.data.materials.append(make_material("ground", (0.07, 0.07, 0.09),
                                                    roughness=0.85))
         render_still("hero_stowed", 0, hide=(pressure, flow))
+        render_still("hero_ribs", 28, hide=(pressure, flow))   # ribs unrolling off coils
         render_still("hero_mid_deploy", N_FRAMES // 2, hide=(pressure, flow))
         render_still("hero_deployed", N_FRAMES - 1, hide=(pressure, flow))
+        # x-ray proof renders: ghost the membranes + pop the ribs so the bistable
+        # coil-unroll is visible (early = tight coils at the spar, mid = unfurling).
+        set_xray(True)
+        render_still("hero_coils_early", 22, hide=(pressure, flow))
+        render_still("hero_coils_mid", 30, hide=(pressure, flow))
+        set_xray(False)
         manta.hide_render = False
         render_still("hero_flow", N_FRAMES - 1)
         # control still: a left-banked turn — hold the deployed frame, drive the

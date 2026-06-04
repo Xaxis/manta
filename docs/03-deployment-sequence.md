@@ -125,6 +125,55 @@ in two channels:
 
 When **either** triggers, jettison fires.
 
+## Phase C: bistable rib unroll (deployment physics)
+
+The wing's chordwise section is set by **9 ribs per side**, and these are *not*
+rigid struts that swing out — they are **bistable rolled-composite tape-springs**
+(thin-ply high-strain carbon, ACS3/CTM-class lenticular section). Each rib is
+stowed as a flat **coil at the leading-edge spar hub** and self-deploys by
+releasing the elastic strain energy locked in the coiled shell, snapping onto
+the airfoil and self-latching open. This is the mechanism the 3D model animates
+(`sim/build.py: Mesh.rib_unroll`, a real coil→airfoil geometry, not a thickness
+fake) and that the reduced-order model `analysis/deployment/rib_deploy_rom.py`
+simulates.
+
+**Why the ribs roll but the spars don't.** A reeled thin-shell boom delivers
+bending stiffness *EI* ≈ 10²–10³ N·m². The wing **spar** must carry the ~1.5 kN·m
+root moment at 3 g, which needs *EI* ≈ 3.4×10⁴ N·m² — two orders of magnitude
+more — and a wall thick enough to do that cannot coil without exceeding the
+shell's failure strain (ε = t/2R). So the **primary spars stay rigid** (67 mm
+CFRP, telescoping booms; see `docs/02`) and the rollable/bistable mechanism is
+used where the loads are low enough for it to work — the **ribs**.
+
+**ROM results** (`rib_deploy_rom.py`, Seffen–Pellegrino constant propagation
+moment + bistable double-well + damped hub):
+
+| Quantity | Value | Note |
+|---|---|---|
+| Shell wall t | 0.14 mm | thin-ply HSC carbon |
+| Coil radius | 11 mm | at the spar hub |
+| Coil strain ε = t/2R | 0.64 % | within ~1 % HSC allowable |
+| Propagation moment M\* = (1+ν)·D·α | 2.14 mN·m | constant (steady uncoiling) |
+| Driving force F = M\*/r_coil | 195 mN | constant strain-energy drive |
+| **Per-rib snap time** | **≈ 0.69 s** | coil → latched airfoil |
+| **Latch-contact velocity** | **1.96 m/s** | damper-regulated, soft |
+| End-latch shock | 27 N | << the 195 N latched root carries |
+| Passive friction hold / drive | 0.13× | **insufficient — see below** |
+
+**Blossoming guard (a design driver).** Inter-layer friction alone holds only
+0.13× the steady tip force, so a *free* friction coil would **blossom** (unwind
+loosely inside the deployer instead of feeding the front under tension). That is
+why the hub is a **rate-controlled spool** — a rotary viscous damper meters the
+payout, which simultaneously (a) prevents blossoming and (b) bleeds the stroke
+so the rib reaches its end-stop at only ~1.96 m/s (no destructive snap).
+Bistable end-detents then hold both the stowed and the deployed states without
+a restraint band. The 9 ribs/side fire on a **root→tip stagger** so the unfurl
+front sweeps outboard across Phase C — the schedule the animation renders.
+
+This per-rib snap dispersion is the `Tape-spring snap dispersion (9 ribs/side)`
+contributor (σ = 1.2 ms) in the symmetry table below; the nominal per-rib snap
+time and soft-latch velocity are now sourced from this ROM rather than assumed.
+
 ## Symmetry budget closure
 
 The Monte-Carlo error stack-up
@@ -210,6 +259,9 @@ PYTHONPATH=. .venv/bin/python -m analysis.deployment.state_machine
 
 # Symmetry budget Monte Carlo with sensitivity sweep
 PYTHONPATH=. .venv/bin/python -m analysis.deployment.symmetry_budget
+
+# Bistable rib unroll physics (snap time, soft-latch velocity, blossoming guard)
+PYTHONPATH=. .venv/bin/python analysis/deployment/rib_deploy_rom.py
 
 # Tests
 PYTHONPATH=. .venv/bin/python -m pytest analysis/deployment/tests/ -v
