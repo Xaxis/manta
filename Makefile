@@ -1,11 +1,12 @@
 # MANTA — top-level driver for analyses and CAD generation.
 # Targets are deliberately simple wrappers so anyone can reproduce a result.
 
-PYTHON := python3
+# bpy (the model build in sim/build.py) ships for Python 3.11 only.
+PYTHON := python3.11
 VENV   := .venv
 ACT    := . $(VENV)/bin/activate &&
 
-.PHONY: help venv install aero aero-weissinger aero-trim aero-ld struct struct-bending struct-budget cad cad-wing cad-spars test clean
+.PHONY: help venv install aero aero-weissinger aero-trim aero-ld struct struct-bending struct-budget cad test clean
 
 help:
 	@echo "MANTA make targets:"
@@ -21,9 +22,7 @@ help:
 	@echo "  make struct-bending   spar bending + sizing recommendation"
 	@echo "  make struct-budget    component mass roll-up + sensitivity sweep"
 	@echo ""
-	@echo "  make cad              regenerate all CAD artifacts (STEP + STL)"
-	@echo "  make cad-wing         regenerate wing OML only"
-	@echo "  make cad-spars        regenerate spar set (BRIEF + sized configs)"
+	@echo "  make cad              rebuild the vehicle model (sim/build.py -> sim/out/manta.glb)"
 	@echo ""
 	@echo "  make test             pytest validation across analysis/"
 	@echo "  make avl              optional: run AVL on the deck (requires avl on PATH)"
@@ -53,13 +52,8 @@ struct-bending:
 struct-budget:
 	$(ACT) python analysis/struct/mass_budget.py
 
-cad: cad-wing cad-spars
-
-cad-wing:
-	$(ACT) python cad/wing/build.py
-
-cad-spars:
-	$(ACT) python cad/spars/build.py
+cad:
+	$(ACT) PYTHONPATH=. python sim/build.py
 
 test:
 	$(ACT) python -m pytest analysis/ -v

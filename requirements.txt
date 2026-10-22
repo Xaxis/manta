@@ -1,13 +1,17 @@
-# MANTA analysis + CAD dependencies
-# Loose pins — recent stable across all packages.
+# MANTA analysis + vehicle-model dependencies. CI installs exactly this file.
+# Loose pins for the analysis stack, exact pins for the model build so its
+# output reproduces.
 
 numpy>=1.26
 scipy>=1.13
 matplotlib>=3.8
 pandas>=2.2
 
-# Parametric CAD. Pulls OCP (OpenCascade Python bindings) — large download (~500 MB).
-cadquery>=2.4
+# Vehicle model (sim/build.py): MuJoCo deploy schedule -> Blender morph GLB.
+# bpy 5.0.x is Blender 5.0 as a Python module, the exporter that wrote the
+# committed sim/out/manta.glb. It needs Python 3.11 and numpy<2.
+bpy==5.0.1
+mujoco==3.9.0
 
 # Test / lint
 pytest>=8.0

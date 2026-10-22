@@ -28,10 +28,16 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
+      - name: Install the X11/GL libraries bpy links against
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libx11-6 libxext6 libxrender1 libxfixes3 libxi6 libxkbcommon0 libsm6 libice6 libgl1
+
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install numpy scipy matplotlib pandas pytest cadquery
+          pip install -r requirements.txt
 
       - name: Run pytest suite
         run: |
@@ -68,19 +74,20 @@ jobs:
           PYTHONPATH=. python -m fcs.envelope_protection.alpha_limiter > /dev/null
           PYTHONPATH=. python -m fcs.sim.closed_loop > /dev/null
 
-      - name: Build wing CAD
+      - name: Reproduce sim pipeline
         run: |
-          PYTHONPATH=. python cad/wing/build.py
-          PYTHONPATH=. python cad/wing/preview.py
-          PYTHONPATH=. python cad/render_hero.py
+          PYTHONPATH=. python sim/aero.py > /dev/null
+          PYTHONPATH=. python sim/flight_dynamics.py > /dev/null
 
-      - name: Build other CAD subsystems
+      # The per-subsystem cad/ scripts were folded into one model in v2/v3:
+      # sim/build.py builds wing, spars, ribs, harness, reserve, FCS bay and
+      # CO2 pneumatics, and exports the GLB the site viewer ships. Its output
+      # must match the committed files byte for byte.
+      - name: Build vehicle model
         run: |
-          PYTHONPATH=. python cad/spars/build.py
-          PYTHONPATH=. python cad/jettison/build.py
-          PYTHONPATH=. python cad/ribs/build.py
-          PYTHONPATH=. python cad/harness/build.py
-          PYTHONPATH=. python cad/pneumatics/build.py
+          PYTHONPATH=. python sim/build.py
+          git diff --stat --exit-code -- sim/out/manta.glb sim/out/trajectory.json sim/out/control.json \
+            site/public/models/v3/manta.glb site/public/models/v3/control.json
 
   site-build:
     name: Site build

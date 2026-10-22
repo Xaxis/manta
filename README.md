@@ -12,7 +12,7 @@ touching anything else.
 
 **Live project site:** <https://manta-ten.vercel.app>
 
-![MANTA deployed](cad/out/hero_deployed.png)
+![MANTA deployed](sim/out/hero_deployed.png)
 
 ## Status
 
@@ -32,7 +32,7 @@ arm-braced wingsuit-extension concept.
 | #6 Ground rig spec | [`test/ground/spec.md`](test/ground/spec.md) | — | — | spec drafted — needs update for new kinematics |
 | (also) FCS + alpha limiter | [`docs/04`](docs/04-fcs-architecture.md) | [`fcs/`](fcs/) | 7 ✓ | first-cut |
 | (also) FMEA | [`safety/fmea.md`](safety/fmea.md) | 11 per-mode files in [`safety/failure-modes/`](safety/failure-modes/) | — | first-cut — pyrotechnic-cutter rows obsolete in BRIEF v2 |
-| (also) CAD (corrected) | [`cad/build.py`](cad/build.py) | [`cad/render.py`](cad/render.py) | — | parametric, single source of truth |
+| (also) Vehicle model | [`sim/README.md`](sim/README.md) | [`sim/build.py`](sim/build.py) | — | MuJoCo deploy schedule → Blender GLB, single source of truth |
 
 > 27 / 27 tests passing. Full suite: `make test`. Site auto-deploys via GitHub Actions on every push touching `site/**`.
 
@@ -63,8 +63,8 @@ Per [`BRIEF.md`](BRIEF.md):
 make venv          # one-time setup of .venv
 make aero          # planform → Weissinger → trim → glide polar
 make struct        # spar bending + mass budget
-PYTHONPATH=. .venv/bin/python cad/build.py    # parametric CAD (STL + STEP per part)
-PYTHONPATH=. .venv/bin/python cad/render.py   # static iso/top/side hero renders
+make cad           # vehicle model: sim/build.py -> sim/out/manta.glb
+PYTHONPATH=. .venv/bin/python sim/build.py --render   # ... + hero stills (Eevee)
 make test          # full pytest suite
 ```
 
@@ -88,7 +88,7 @@ If no, it isn't done.
 | [`BRIEF.md`](BRIEF.md) | The brief (v2 — wingsuit-extension architecture). |
 | [`docs/`](docs/) | Numbered design documents (rationale → aero → structure → deployment → FCS → emergency → test plan → pilot training). |
 | [`analysis/`](analysis/) | Quantitative analysis: aero, struct, deployment, flight dynamics. Reproducible via `make`. |
-| [`cad/`](cad/) | Single parametric build at `cad/build.py`. Outputs per-part STLs to `cad/out/parts/`. |
+| [`sim/`](sim/) | Flight physics and the single vehicle-model build at `sim/build.py`. Exports `sim/out/manta.glb` for the site viewer. |
 | [`fcs/`](fcs/) | Flight control: alpha limiter, SITL simulator, envelope-protection unit tests. |
 | [`test/`](test/) | Test article specifications: bench characterization, ground deployment rig, tow article, drop article. |
 | [`safety/`](safety/) | FMEA, reserve-parachute compatibility, per-failure-mode write-ups. |
